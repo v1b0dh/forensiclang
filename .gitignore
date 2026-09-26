@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+venv/
+.venv/
+.env
+.pytest_cache/
+*.tsbuildinfo
+
+# ANTLR4 generated (regenerate with: antlr4 -Dlanguage=Python3 -visitor -o generated/ jocky.g4)
+compiler/generated/*.py
+compiler/generated/*.tokens
+compiler/generated/*.interp
+!compiler/generated/.gitkeep
+!compiler/generated/__init__.py
+
+# C build artifacts
+runtime/build/
+*.o
+*.a
+*.lib
+*.dll
+*.exe
+*.ll           # LLVM IR intermediates
+*.bc           # LLVM bitcode
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Node / Dashboard
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.vite/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Runtime artifacts
+jocky_artifacts/
+/tmp/jocky_*/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Certificates (keep placeholder, not real certs)
+certs/*.key
+certs/*.crt
+
+# Secrets
+.env.local
+.env.production
+
+# Logs
+*.log

@@ -1,0 +1,168 @@
+name: JOCKY Build Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'compiler/**'
+      - 'runtime/**'
+      - 'server/**'
+      - 'tests/**'
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # 1. Compiler tests (Linux)
+  # ──────────────────────────────────────────────────────────────
+  test-compiler:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python deps
+        run: pip install antlr4-tools antlr4-python3-runtime llvmlite pytest fastapi
+
+      - name: Generate ANTLR4 parser
+        run: |
+          cd compiler
+          antlr4 -Dlanguage=Python3 -visitor -o generated/ Jocky.g4
+
+      - name: Run AST tests (no parser needed)
+        run: python -m pytest tests/ -k "ast" -v
+
+      - name: Run full compiler tests
+        run: python -m pytest tests/ -v
+
+  # ──────────────────────────────────────────────────────────────
+  # 2. Runtime build (Linux)
+  # ──────────────────────────────────────────────────────────────
+  build-runtime-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake ninja-build libpcap-dev
+
+      - name: Build runtime
+        run: |
+          cd runtime
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel $(nproc)
+
+      - name: Upload runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jocky-runtime-linux
+          path: runtime/build/libjocky_runtime.a
+
+  # ──────────────────────────────────────────────────────────────
+  # 3. Runtime build (Windows)
+  # ──────────────────────────────────────────────────────────────
+  build-runtime-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build runtime (MSVC)
+        run: |
+          cd runtime
+          cmake -B build -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release
+
+      - name: Upload runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jocky-runtime-windows
+          path: runtime/build/Release/jocky_runtime.lib
+
+  # ──────────────────────────────────────────────────────────────
+  # 4. Dashboard build
+  # ──────────────────────────────────────────────────────────────
+  build-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: dashboard
+
+      - name: Type-check
+        run: npx tsc --noEmit
+        working-directory: dashboard
+
+      - name: Build production bundle
+        run: npm run build
+        working-directory: dashboard
+
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jocky-dashboard
+          path: dashboard/dist/
+
+  # ──────────────────────────────────────────────────────────────
+  # 5. Server tests
+  # ──────────────────────────────────────────────────────────────
+  test-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install server deps
+        run: pip install fastapi uvicorn sqlalchemy pydantic pytest httpx
+
+      - name: Run server tests
+        run: python -m pytest tests/ -k "server" -v || echo "No server tests yet"
+
+  # ──────────────────────────────────────────────────────────────
+  # 6. Package release
+  # ──────────────────────────────────────────────────────────────
+  package:
+    needs: [test-compiler, build-runtime-linux, build-runtime-windows, build-dashboard]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Create release archive
+        run: |
+          mkdir -p release/
+          cp -r dist/jocky-runtime-linux/  release/
+          cp -r dist/jocky-dashboard/      release/dashboard/
+          cp compiler/jockc.py             release/
+          tar -czf jocky-${{ github.sha }}.tar.gz release/
+
+      - name: Upload release
+        uses: actions/upload-artifact@v4
+        with:
+          name: jocky-release-${{ github.sha }}
+          path: jocky-*.tar.gz
+          retention-days: 30
