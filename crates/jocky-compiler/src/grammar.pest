@@ -1,0 +1,169 @@
+// ─────────────────────────────────────────────────────────────────
+// JOCKY Forensic Scripting Language — PEG Grammar (pest)
+// Ported from compiler/Jocky.g4 (ANTLR4)
+// ─────────────────────────────────────────────────────────────────
+
+// Whitespace & comments — silent (auto-skipped between tokens)
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT    = _{ line_comment | block_comment }
+line_comment  = _{ "//" ~ (!"\n" ~ ANY)* }
+block_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+
+// ─────────────────────────── Entry Point ─────────────────────────
+program = { SOI ~ statement* ~ EOI }
+
+statement = {
+    collect_stmt
+    | scan_stmt
+    | analyze_stmt
+    | timeline_stmt
+    | correlate_stmt
+    | report_stmt
+    | assign_stmt
+    | if_stmt
+    | for_stmt
+    | func_decl
+}
+
+// ─────────────────── Core Forensic Statements ────────────────────
+
+// collect memory from pid 1234 filter by region [heap] export to artifact "name"
+collect_stmt = {
+    "collect" ~ collect_target
+    ~ ("from" ~ source)?
+    ~ ("using" ~ ident)?
+    ~ filter_clause?
+    ~ export_clause?
+}
+
+collect_target = { "memory" | "disk" | "registry" | "artifacts" }
+
+// scan processes on eth0 filter by name contains "cmd"
+scan_stmt = {
+    "scan" ~ scan_target
+    ~ ("on" ~ ident)?
+    ~ ("filter" ~ "by" ~ expr)?
+}
+
+scan_target = {
+    "network" ~ "interfaces"
+    | "processes"
+    | "open" ~ "ports"
+    | "loaded" ~ "modules"
+}
+
+// analyze "artifact" using "yara_rules.yar" threshold 0.8
+analyze_stmt = {
+    "analyze" ~ (ident | string)
+    ~ "using" ~ string
+    ~ ("threshold" ~ number)?
+}
+
+// timeline host "DEMO-HOST" from "2026-01-01" to "2026-12-31" include [...] output report "file"
+timeline_stmt = {
+    "timeline" ~ "host" ~ (ident | string)
+    ~ "from" ~ (timestamp | string) ~ "to" ~ (timestamp | string)
+    ~ "include" ~ "[" ~ timeline_source ~ ("," ~ timeline_source)* ~ "]"
+    ~ ("output" ~ "report" ~ string)?
+}
+
+timeline_source = {
+    "registry" | "eventlog" | "prefetch"
+    | "browser" | "shellbags" | "mft"
+}
+
+// correlate "artifact" with "iocs.json" flag anomalies
+correlate_stmt = {
+    "correlate" ~ (ident | string)
+    ~ "with" ~ string
+    ~ ("flag" ~ "anomalies")?
+}
+
+// report "artifact" as "output.html" format html
+report_stmt = {
+    "report" ~ (ident | string) ~ "as" ~ string
+    ~ format_clause?
+}
+
+format_clause = { "format" ~ format_type }
+format_type   = { "html" | "json" | "csv" }
+
+// ────────────────────────── Expressions ──────────────────────────
+// Precedence (lowest to highest): or, and, comparison, contains/matches, not, primary
+expr = { unary ~ (bin_op ~ unary)* }
+
+unary = { not_op ~ unary | primary }
+
+not_op = { "not" }
+
+bin_op = {
+    "and" | "or"
+    | "==" | "!=" | ">=" | "<=" | ">" | "<"
+    | "contains" | "matches"
+}
+
+primary = {
+    "(" ~ expr ~ ")"
+    | number
+    | string
+    | boolean
+    | ident
+}
+
+// ──────────────────────────── Clauses ────────────────────────────
+filter_clause = { "filter" ~ "by" ~ filter_expr ~ ("," ~ filter_expr)* }
+filter_expr   = { ident ~ filter_op? ~ filter_value }
+filter_value  = { string | number | identifier_list | ident }
+filter_op     = { "==" | "!=" | "contains" | "in" }
+
+export_clause = { "export" ~ "to" ~ "artifact" ~ string }
+
+source = {
+    "pid" ~ (number | ident)
+    | "host" ~ (string | ident)
+    | ident
+}
+
+// ──────────────────── Control Flow & Declarations ────────────────
+assign_stmt = { ident ~ "=" ~ expr }
+if_stmt     = { "if" ~ expr ~ block ~ ("else" ~ block)? }
+for_stmt    = { "for" ~ ident ~ "each" ~ ident ~ block }
+func_decl   = { "function" ~ ident ~ "(" ~ param_list? ~ ")" ~ block }
+param_list  = { ident ~ ("," ~ ident)* }
+
+block = { "{" ~ statement* ~ "}" }
+
+identifier_list = { "[" ~ ident ~ ("," ~ ident)* ~ "]" }
+
+// ──────────────────────────── Tokens ─────────────────────────────
+// Timestamp: "2026-09-25"
+timestamp = @{
+    "\"" ~ ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} ~ "\""
+}
+
+// String: "hello world"
+string = @{ "\"" ~ (!"\"" ~ !"\n" ~ ANY)* ~ "\"" }
+
+// Number: 1234 or 3.14
+number = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+
+// Boolean: true | false
+boolean = { "true" | "false" }
+
+// Identifier: variable_name, host, pid, etc.
+// Keywords that can also be identifiers in certain contexts
+ident = @{
+    !reserved ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
+}
+
+// Reserved words that are NOT valid standalone identifiers
+// (pest requires explicit disambiguation for PEG grammars)
+reserved = {
+    ( "collect" | "scan" | "analyze" | "correlate" | "timeline"
+    | "report" | "function" | "if" | "else" | "for" | "each"
+    | "return" | "true" | "false" | "not" | "and" | "or"
+    | "from" | "to" | "filter" | "by" | "with" | "as"
+    | "using" | "export" | "import" | "flag" | "on"
+    | "include" | "output" | "format" | "threshold"
+    ) ~ !(ASCII_ALPHANUMERIC | "_")
+}

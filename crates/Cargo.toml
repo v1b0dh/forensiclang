@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "jocky-compiler",
+    "jocky-runtime",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["JOCKY Team"]
+description = "JOCKY — Forensic Scripting Language Platform"

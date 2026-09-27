@@ -1,0 +1,17 @@
+[package]
+name = "jocky-runtime"
+version.workspace = true
+edition.workspace = true
+description = "JOCKY forensic runtime — memory, disk, network, and process collection modules"
+
+[dependencies]
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+pretty_assertions = "1"

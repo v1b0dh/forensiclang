@@ -1,0 +1,20 @@
+[package]
+name = "jocky-compiler"
+version.workspace = true
+edition.workspace = true
+description = "JOCKY forensic scripting language compiler (jockc)"
+
+[[bin]]
+name = "jockc"
+path = "src/main.rs"
+
+[dependencies]
+pest = "2"
+pest_derive = "2"
+clap = { version = "4", default-features = false, features = ["derive", "std", "help", "usage", "error-context"] }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+pretty_assertions = "1"

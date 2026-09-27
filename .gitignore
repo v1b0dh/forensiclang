@@ -69,3 +69,8 @@ certs/*.crt
 
 # Logs
 *.log
+
+# Rust
+target/
+crates/target/
+
