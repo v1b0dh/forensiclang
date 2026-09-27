@@ -22,7 +22,7 @@ statement   : collectStmt
 // ─────────────────────────────────────────────────────────────────
 collectStmt : 'collect' collectTarget
               ('from' source)?
-              ('using' id)?
+              ('using' usingPlugin=id)?
               filterClause?
               exportClause?
             ;
@@ -30,8 +30,8 @@ collectStmt : 'collect' collectTarget
 collectTarget : 'memory' | 'disk' | 'registry' | 'artifacts' ;
 
 scanStmt    : 'scan' scanTarget
-              ('on' id)?
-              ('filter' 'by' expr)?
+              ('on' ifaceName=id)?
+              ('filter' 'by' filterBody=expr)?
             ;
 
 scanTarget  : 'network' 'interfaces'
@@ -40,35 +40,46 @@ scanTarget  : 'network' 'interfaces'
             | 'loaded' 'modules'
             ;
 
-analyzeStmt : 'analyze' (id | STRING)
-              'using' STRING
-              ('threshold' NUMBER)?
+analyzeStmt : 'analyze' targetRef=analyzeTarget
+              'using' pluginName=STRING
+              ('threshold' thresholdVal=NUMBER)?
             ;
 
-timelineStmt : 'timeline' 'host' (STRING | id)
-               'from' (TIMESTAMP | STRING) 'to' (TIMESTAMP | STRING)
+analyzeTarget : id | STRING ;
+
+timelineStmt : 'timeline' 'host' hostName=timelineHost
+               'from' fromTime=timelineTime 'to' toTime=timelineTime
                'include' '[' timelineSource (',' timelineSource)* ']'
-               ('output' 'report' STRING)?
+               ('output' 'report' outputFile=STRING)?
              ;
+
+timelineHost  : id | STRING ;
+timelineTime  : TIMESTAMP | STRING ;
 
 timelineSource : 'registry' | 'eventlog' | 'prefetch'
                | 'browser' | 'shellbags' | 'mft' ;
 
-correlateStmt : 'correlate' (id | STRING)
-                'with' STRING        // IOC list path
+correlateStmt : 'correlate' dataRef=correlateTarget
+                'with' iocPath=STRING
                 ('flag' 'anomalies')?
               ;
 
-reportStmt  : 'report' (id | STRING) 'as' STRING
-              ('format' ('html' | 'json' | 'csv'))?
+correlateTarget : id | STRING ;
+
+reportStmt  : 'report' targetRef=reportTarget 'as' outputName=STRING
+              formatClause?
             ;
+
+reportTarget : id | STRING ;
+
+formatClause : 'format' formatType=('html' | 'json' | 'csv') ;
 
 // ─────────────────────────────────────────────────────────────────
 // Expressions
 // ─────────────────────────────────────────────────────────────────
-expr        : expr ('and'|'or') expr
+expr        : expr op=('and'|'or') expr
             | 'not' expr
-            | expr ('=='|'!='|'>'|'<'|'>='|'<=') expr
+            | expr op=('=='|'!='|'>'|'<'|'>='|'<=') expr
             | expr 'contains' expr
             | expr 'matches' STRING
             | primary
@@ -82,23 +93,34 @@ primary     : NUMBER | STRING | BOOL | id
 // Clauses
 // ─────────────────────────────────────────────────────────────────
 filterClause : 'filter' 'by' filterExpr (',' filterExpr)* ;
-filterExpr   : id filterOp? (STRING | NUMBER | identifierList | id) ;
+filterExpr   : fieldName=id filterOp? filterValue ;
+filterValue  : STRING | NUMBER | identifierList | id ;
 filterOp     : '==' | '!=' | 'contains' | 'in' ;
 
-exportClause : 'export' 'to' 'artifact' STRING ;
+exportClause : 'export' 'to' 'artifact' exportName=STRING ;
 
-source      : 'pid' (NUMBER | id)
-            | 'host' (STRING | id)
-            | id
+source      : 'pid' pidValue=pidRef
+            | 'host' hostValue=hostRef
+            | idValue=id
             ;
+
+pidRef      : NUMBER | id ;
+hostRef     : STRING | id ;
 
 // ─────────────────────────────────────────────────────────────────
 // Control flow & declarations
 // ─────────────────────────────────────────────────────────────────
-assignStmt  : id '=' expr ;
-ifStmt      : 'if' expr '{' statement* '}' ('else' '{' statement* '}')? ;
-forStmt     : 'for' id 'each' id '{' statement* '}' ;
-funcDecl    : 'function' id '(' paramList? ')' '{' statement* '}' ;
+assignStmt  : varName=id '=' assignValue=expr ;
+
+ifStmt      : 'if' condition=expr thenBlock=block
+              ('else' elseBlock=block)?
+            ;
+
+block       : '{' statement* '}' ;
+
+forStmt     : 'for' loopVar=id 'each' iterName=id forBody=block ;
+
+funcDecl    : 'function' funcName=id '(' paramList? ')' funcBody=block ;
 paramList   : id (',' id)* ;
 
 identifierList : '[' id (',' id)* ']' ;

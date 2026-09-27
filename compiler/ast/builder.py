@@ -1,6 +1,10 @@
 """
 JOCKY AST Builder — visits ANTLR4 parse tree and returns typed AST nodes.
 compiler/ast/builder.py
+
+Uses ANTLR element labels (ctx.hostName, ctx.fromTime, ctx.thenBlock, etc.)
+so the visitor is a clean 1:1 mapping from parse tree → AST with zero
+string-searching or child-counting hacks.
 """
 from __future__ import annotations
 import sys
@@ -9,7 +13,6 @@ import os
 # Allow running from different cwd
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from antlr4 import ParserRuleContext
 from compiler.ast.nodes import (
     Program, CollectStatement, ScanStatement, AnalyzeStatement,
     TimelineStatement, CorrelateStatement, ReportStatement,
@@ -26,10 +29,24 @@ except ImportError:
         def visitChildren(self, node): ...
 
 
+def _strip_quotes(text: str) -> str:
+    """Remove surrounding double-quotes from a token's text."""
+    if text and len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+        return text[1:-1]
+    return text
+
+
+def _get_text(rule_ctx) -> str:
+    """Safely extract text from a rule context (id, analyzeTarget, etc.)."""
+    if rule_ctx is None:
+        return ""
+    return rule_ctx.getText()
+
+
 class ASTBuilder(JockyVisitor):
     """Walk the ANTLR parse tree and produce JOCKY AST nodes."""
 
-    # ─────────────────────────────── Program ──────────────────────────────
+    # ─────────────────────────── Program ──────────────────────────────
     def visitProgram(self, ctx):
         stmts = [self.visit(s) for s in ctx.statement()]
         return Program(statements=[s for s in stmts if s is not None])
@@ -38,16 +55,20 @@ class ASTBuilder(JockyVisitor):
     def visitStatement(self, ctx):
         return self.visitChildren(ctx)
 
+    # ── collect ──────────────────────────────────────────────────────
     def visitCollectStmt(self, ctx):
         target = ctx.collectTarget().getText()
-        source = self.visit(ctx.source()) if ctx.source() else Source(kind="host", value="local", line=ctx.start.line)
+        source = (
+            self.visit(ctx.source())
+            if ctx.source()
+            else Source(kind="host", value="local", line=ctx.start.line)
+        )
         filters = []
         if ctx.filterClause():
             filters = [self.visit(f) for f in ctx.filterClause().filterExpr()]
         export_name = None
         if ctx.exportClause():
-            raw = ctx.exportClause().STRING().getText()
-            export_name = raw.strip('"')
+            export_name = _strip_quotes(ctx.exportClause().exportName.text)
         return CollectStatement(
             target=target,
             source=source,
@@ -56,10 +77,11 @@ class ASTBuilder(JockyVisitor):
             line=ctx.start.line,
         )
 
+    # ── scan ─────────────────────────────────────────────────────────
     def visitScanStmt(self, ctx):
         target = ctx.scanTarget().getText().replace(" ", "_")
-        interface = self._get_id_text(ctx)
-        filter_expr = self.visit(ctx.expr()) if ctx.expr() else None
+        interface = _get_text(ctx.ifaceName) if ctx.ifaceName else None
+        filter_expr = self.visit(ctx.filterBody) if ctx.filterBody else None
         return ScanStatement(
             target=target,
             interface=interface,
@@ -67,50 +89,30 @@ class ASTBuilder(JockyVisitor):
             line=ctx.start.line,
         )
 
+    # ── analyze ──────────────────────────────────────────────────────
     def visitAnalyzeStmt(self, ctx):
-        ident = self._get_id_text(ctx) or (ctx.STRING().getText().strip('"') if ctx.STRING() else "")
-        plugin = ctx.STRING().getText().strip('"') if ctx.STRING() else ""
-        threshold = float(ctx.NUMBER().getText()) if ctx.NUMBER() else None
+        # targetRef is an analyzeTarget rule (id | STRING)
+        target_ctx = ctx.targetRef
+        target_text = _strip_quotes(_get_text(target_ctx))
+        plugin = _strip_quotes(ctx.pluginName.text)
+        threshold = float(ctx.thresholdVal.text) if ctx.thresholdVal else None
         return AnalyzeStatement(
-            target=ident, plugin=plugin, threshold=threshold,
+            target=target_text,
+            plugin=plugin,
+            threshold=threshold,
             line=ctx.start.line,
         )
 
+    # ── timeline ─────────────────────────────────────────────────────
     def visitTimelineStmt(self, ctx):
-        strings = [s.getText().strip('"') for s in ctx.STRING()]
-        ts = [t.getText().strip('"') for t in ctx.TIMESTAMP()] if ctx.TIMESTAMP() else []
-        host_id = self._get_id_text(ctx)
-        
-        if host_id:
-            host = host_id
-            if len(ts) >= 2:
-                from_time = ts[0]
-                to_time = ts[1]
-                output_file = strings[0] if strings else None
-            elif len(strings) >= 2:
-                from_time = strings[0]
-                to_time = strings[1]
-                output_file = strings[2] if len(strings) > 2 else None
-            else:
-                from_time = ts[0] if ts else ""
-                to_time = strings[0] if strings else ""
-                output_file = None
-        else:
-            host = strings[0] if strings else ""
-            if len(ts) >= 2:
-                from_time = ts[0]
-                to_time = ts[1]
-                output_file = strings[1] if len(strings) > 1 else None
-            elif len(strings) >= 3:
-                from_time = strings[1]
-                to_time = strings[2]
-                output_file = strings[3] if len(strings) > 3 else None
-            else:
-                from_time = ts[0] if ts else ""
-                to_time = ts[1] if len(ts) > 1 else ""
-                output_file = None
-
+        # All labeled — no guessing needed
+        host = _strip_quotes(_get_text(ctx.hostName))
+        from_time = _strip_quotes(_get_text(ctx.fromTime))
+        to_time = _strip_quotes(_get_text(ctx.toTime))
         sources = [s.getText() for s in ctx.timelineSource()]
+        output_file = (
+            _strip_quotes(ctx.outputFile.text) if ctx.outputFile else None
+        )
         return TimelineStatement(
             host=host,
             from_time=from_time,
@@ -120,155 +122,160 @@ class ASTBuilder(JockyVisitor):
             line=ctx.start.line,
         )
 
+    # ── correlate ────────────────────────────────────────────────────
     def visitCorrelateStmt(self, ctx):
-        ident = self._get_id_text(ctx)
-        strings = [s.getText().strip('"') for s in ctx.STRING()]
-        if ident:
-            ioc_list = strings[0] if strings else ""
-        else:
-            ident = strings[0] if strings else ""
-            ioc_list = strings[1] if len(strings) > 1 else ""
-        flag = "flag" in ctx.getText() and "anomalies" in ctx.getText()
+        data = _strip_quotes(_get_text(ctx.dataRef))
+        ioc_list = _strip_quotes(ctx.iocPath.text)
+        # Grammar: 'correlate' dataRef 'with' iocPath ('flag' 'anomalies')?
+        # 4 children = no flag, 6 children = flag present
+        flag = ctx.getChildCount() > 4
         return CorrelateStatement(
-            data=ident, ioc_list=ioc_list, flag_anomalies=flag,
+            data=data,
+            ioc_list=ioc_list,
+            flag_anomalies=flag,
             line=ctx.start.line,
         )
 
+    # ── report ───────────────────────────────────────────────────────
     def visitReportStmt(self, ctx):
-        ident = self._get_id_text(ctx)
-        strings = [s.getText().strip('"') for s in ctx.STRING()]
-        if ident:
-            filename = strings[0] if strings else ""
-        else:
-            ident = strings[0] if strings else ""
-            filename = strings[1] if len(strings) > 1 else ""
-        fmt = "html"
-        text = ctx.getText().lower()
-        for candidate in ("json", "csv", "html"):
-            if candidate in text:
-                fmt = candidate
-                break
+        target = _strip_quotes(_get_text(ctx.targetRef))
+        filename = _strip_quotes(ctx.outputName.text)
+        fmt = "html"  # default
+        if ctx.formatClause():
+            fmt = ctx.formatClause().formatType.text
         return ReportStatement(
-            target=ident, filename=filename, format=fmt,
+            target=target,
+            filename=filename,
+            format=fmt,
             line=ctx.start.line,
         )
 
+    # ── assign ───────────────────────────────────────────────────────
     def visitAssignStmt(self, ctx):
-        name = self._get_id_text(ctx) or "var"
-        val = self.visit(ctx.expr())
+        name = _get_text(ctx.varName)
+        val = self.visit(ctx.assignValue)
         return AssignStatement(name=name, value=val, line=ctx.start.line)
 
+    # ── if/else ──────────────────────────────────────────────────────
     def visitIfStmt(self, ctx):
-        cond = self.visit(ctx.expr())
-        # Split on 'else' — the grammar encodes them as two repeated blocks
-        then_stmts = [self.visit(s) for s in ctx.statement(0).children if isinstance(s, ParserRuleContext)]  # type: ignore
+        cond = self.visit(ctx.condition)
+        then_stmts = [self.visit(s) for s in ctx.thenBlock.statement()]
         else_stmts = []
-        if len(ctx.children) > 5:  # has else branch
-            else_stmts = [self.visit(s) for s in ctx.statement(1).children if isinstance(s, ParserRuleContext)]  # type: ignore
+        if ctx.elseBlock:
+            else_stmts = [self.visit(s) for s in ctx.elseBlock.statement()]
         return IfStatement(
-            condition=cond, then_block=then_stmts, else_block=else_stmts,
+            condition=cond,
+            then_block=[s for s in then_stmts if s is not None],
+            else_block=[s for s in else_stmts if s is not None],
             line=ctx.start.line,
         )
 
+    # ── for ──────────────────────────────────────────────────────────
     def visitForStmt(self, ctx):
-        ids = self._get_id_list(ctx)
-        var = ids[0] if len(ids) > 0 else "item"
-        iterable = ids[1] if len(ids) > 1 else "items"
-        body = [self.visit(s) for s in ctx.statement()]
-        return ForStatement(var=var, iterable=iterable, body=body, line=ctx.start.line)
+        var = _get_text(ctx.loopVar)
+        iterable = _get_text(ctx.iterName)
+        body = [self.visit(s) for s in ctx.forBody.statement()]
+        return ForStatement(
+            var=var,
+            iterable=iterable,
+            body=[s for s in body if s is not None],
+            line=ctx.start.line,
+        )
 
+    # ── function ─────────────────────────────────────────────────────
     def visitFuncDecl(self, ctx):
-        name = self._get_id_text(ctx) or "anonymous"
+        name = _get_text(ctx.funcName)
         params = []
         if ctx.paramList():
-            params = self._get_id_list(ctx.paramList())
-        body = [self.visit(s) for s in ctx.statement()]
-        return FuncDecl(name=name, params=params, body=body, line=ctx.start.line)
+            params = [_get_text(p) for p in ctx.paramList().id_()]
+        body = [self.visit(s) for s in ctx.funcBody.statement()]
+        return FuncDecl(
+            name=name,
+            params=params,
+            body=[s for s in body if s is not None],
+            line=ctx.start.line,
+        )
 
     # ────────────────────────────── Source ────────────────────────────────
     def visitSource(self, ctx):
-        text = ctx.getText()
-        if ctx.NUMBER():
-            return Source(kind="pid", value=int(ctx.NUMBER().getText()), line=ctx.start.line)
-        elif ctx.STRING():
-            return Source(kind="host", value=ctx.STRING().getText().strip('"'), line=ctx.start.line)
-        elif hasattr(ctx, "id_") and ctx.id_():
-            kind = "pid" if "pid" in text else ("host" if "host" in text else "identifier")
-            return Source(kind=kind, value=ctx.id_().getText(), line=ctx.start.line)
+        if ctx.pidValue:
+            # pidRef = NUMBER | id
+            pid_ctx = ctx.pidValue
+            if pid_ctx.NUMBER():
+                return Source(kind="pid", value=int(pid_ctx.NUMBER().getText()), line=ctx.start.line)
+            else:
+                return Source(kind="pid", value=_get_text(pid_ctx.id_()), line=ctx.start.line)
+        elif ctx.hostValue:
+            # hostRef = STRING | id
+            host_ctx = ctx.hostValue
+            if host_ctx.STRING():
+                return Source(kind="host", value=_strip_quotes(host_ctx.STRING().getText()), line=ctx.start.line)
+            else:
+                return Source(kind="host", value=_get_text(host_ctx.id_()), line=ctx.start.line)
+        elif ctx.idValue:
+            return Source(kind="identifier", value=_get_text(ctx.idValue), line=ctx.start.line)
         else:
-            return Source(kind="identifier", value=text, line=ctx.start.line)
+            return Source(kind="identifier", value=ctx.getText(), line=ctx.start.line)
 
     # ─────────────────────────── Filter exprs ─────────────────────────────
     def visitFilterExpr(self, ctx):
-        ids = self._get_id_list(ctx)
-        field_name = ids[0] if ids else "field"
+        field_name = _get_text(ctx.fieldName)
         op = ctx.filterOp().getText() if ctx.filterOp() else "in"
-        if ctx.STRING():
-            val = ctx.STRING().getText().strip('"')
-        elif ctx.NUMBER():
-            val = float(ctx.NUMBER().getText())
-        elif ctx.identifierList():
-            val = self._get_id_list(ctx.identifierList())
-        elif len(ids) > 1:
-            val = ids[1]
+
+        # filterValue = STRING | NUMBER | identifierList | id
+        fv = ctx.filterValue()
+        if fv.STRING():
+            val = _strip_quotes(fv.STRING().getText())
+        elif fv.NUMBER():
+            val = float(fv.NUMBER().getText())
+        elif fv.identifierList():
+            val = [_get_text(i) for i in fv.identifierList().id_()]
+        elif fv.id_():
+            val = _get_text(fv.id_())
         else:
-            val = None
+            val = fv.getText()
+
         return FilterExpr(field=field_name, operator=op, value=val, line=ctx.start.line)
 
     # ─────────────────────────── Expressions ──────────────────────────────
     def visitExpr(self, ctx):
-        if ctx.getChildCount() == 1:
+        children = ctx.getChildCount()
+
+        # primary (single child)
+        if children == 1:
             return self.visit(ctx.primary())
-        if ctx.getChildCount() == 2:
-            # unary not
+
+        # unary: 'not' expr
+        if children == 2:
             op = ctx.getChild(0).getText()
             right = self.visit(ctx.expr(0))
             return Expression(operator=op, right=right, line=ctx.start.line)
-        if ctx.getChildCount() == 3:
-            op = ctx.getChild(1).getText()
+
+        # binary: expr op expr  |  expr 'contains' expr  |  expr 'matches' STRING
+        if children == 3:
+            op_text = ctx.getChild(1).getText()
             left = self.visit(ctx.expr(0))
-            right = self.visit(ctx.expr(1))
-            return Expression(operator=op, left=left, right=right, line=ctx.start.line)
+            # 'matches' has STRING as third child, not expr
+            if op_text == "matches":
+                right = Expression(
+                    value=_strip_quotes(ctx.STRING().getText()),
+                    line=ctx.start.line,
+                )
+            else:
+                right = self.visit(ctx.expr(1))
+            return Expression(operator=op_text, left=left, right=right, line=ctx.start.line)
+
         return self.visitChildren(ctx)
 
     def visitPrimary(self, ctx):
-        text = ctx.getText()
         if ctx.NUMBER():
             return Expression(value=float(ctx.NUMBER().getText()), line=ctx.start.line)
         if ctx.STRING():
-            return Expression(value=ctx.STRING().getText().strip('"'), line=ctx.start.line)
+            return Expression(value=_strip_quotes(ctx.STRING().getText()), line=ctx.start.line)
         if ctx.BOOL():
-            return Expression(value=text == "true", line=ctx.start.line)
-        id_text = self._get_id_text(ctx)
-        if id_text is not None:
-            return Expression(value=id_text, line=ctx.start.line)
+            return Expression(value=ctx.BOOL().getText() == "true", line=ctx.start.line)
+        if ctx.id_():
+            return Expression(value=_get_text(ctx.id_()), line=ctx.start.line)
         if ctx.expr():
             return self.visit(ctx.expr())
-        return Expression(value=text, line=ctx.start.line)
-
-    # ────────────────────────── Helper methods ────────────────────────────
-    def _get_id_text(self, ctx) -> str | None:
-        if hasattr(ctx, "id_") and ctx.id_():
-            res = ctx.id_()
-            if isinstance(res, list):
-                return res[0].getText() if res else None
-            return res.getText()
-        if hasattr(ctx, "IDENTIFIER") and ctx.IDENTIFIER():
-            res = ctx.IDENTIFIER()
-            if isinstance(res, list):
-                return res[0].getText() if res else None
-            return res.getText()
-        return None
-
-    def _get_id_list(self, ctx) -> list[str]:
-        if hasattr(ctx, "id_") and ctx.id_():
-            res = ctx.id_()
-            if isinstance(res, list):
-                return [x.getText() for x in res]
-            return [res.getText()]
-        if hasattr(ctx, "IDENTIFIER") and ctx.IDENTIFIER():
-            res = ctx.IDENTIFIER()
-            if isinstance(res, list):
-                return [x.getText() for x in res]
-            return [res.getText()]
-        return []
+        return Expression(value=ctx.getText(), line=ctx.start.line)
