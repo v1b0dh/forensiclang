@@ -53,6 +53,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from server.api.forensics import router as forensics_router
+app.include_router(forensics_router)
+
 # ── In-memory state ───────────────────────────────────────────────
 connected_agents: dict[str, WebSocket]        = {}
 job_queues:       dict[str, asyncio.Queue]    = {}
