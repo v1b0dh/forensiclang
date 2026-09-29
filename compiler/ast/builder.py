@@ -14,9 +14,9 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from compiler.ast.nodes import (
-    Program, CollectStatement, ScanStatement, AnalyzeStatement,
-    TimelineStatement, CorrelateStatement, ReportStatement,
-    AssignStatement, IfStatement, ForStatement, FuncDecl,
+    Program, CollectStatement, ScanStatement, CarveStatement, EraseStatement,
+    AnalyzeStatement, TimelineStatement, CorrelateStatement, ReportStatement,
+    AssignStatement, CallStatement, IfStatement, ForStatement, FuncDecl,
     Source, FilterExpr, Expression,
 )
 
@@ -68,7 +68,7 @@ class ASTBuilder(JockyVisitor):
             filters = [self.visit(f) for f in ctx.filterClause().filterExpr()]
         export_name = None
         if ctx.exportClause():
-            export_name = _strip_quotes(ctx.exportClause().exportName.text)
+            export_name = _strip_quotes(_get_text(ctx.exportClause().exportName))
         return CollectStatement(
             target=target,
             source=source,
@@ -86,6 +86,48 @@ class ASTBuilder(JockyVisitor):
             target=target,
             interface=interface,
             filter_expr=filter_expr,
+            line=ctx.start.line,
+        )
+
+    # ── carve ─────────────────────────────────────────────────────────
+    def visitCarveStmt(self, ctx):
+        drive = _strip_quotes(_get_text(ctx.drive))
+        types = []
+        if ctx.carveType():
+            types = [t.getText() for t in ctx.carveType()]
+        mode = ctx.carveMode().getText() if ctx.carveMode() else "deep"
+        threshold = float(ctx.threshold.text) if ctx.threshold else None
+        export_name = None
+        if ctx.exportClause():
+            export_name = _strip_quotes(_get_text(ctx.exportClause().exportName))
+        return CarveStatement(
+            drive=drive,
+            types=types,
+            mode=mode,
+            confidence_threshold=threshold,
+            export_name=export_name,
+            line=ctx.start.line,
+        )
+
+    # ── erase ─────────────────────────────────────────────────────────
+    def visitEraseStmt(self, ctx):
+        target_type = ctx.targetType.getText()
+        target_path = _strip_quotes(_get_text(ctx.targetPath))
+        method = ctx.method.getText()
+        passes = int(ctx.passes.text) if ctx.passes else None
+        clean_metadata = ctx.cleanMetadata.text.lower() == "true" if ctx.cleanMetadata else False
+        clean_slack = ctx.cleanSlack.text.lower() == "true" if ctx.cleanSlack else False
+        audit_file = _strip_quotes(_get_text(ctx.auditFile)) if ctx.auditFile else None
+        cert_file = _strip_quotes(_get_text(ctx.certFile)) if ctx.certFile else None
+        return EraseStatement(
+            target_type=target_type,
+            target_path=target_path,
+            method=method,
+            passes=passes,
+            clean_metadata=clean_metadata,
+            clean_slack=clean_slack,
+            audit_file=audit_file,
+            certificate_file=cert_file,
             line=ctx.start.line,
         )
 
@@ -155,6 +197,16 @@ class ASTBuilder(JockyVisitor):
         name = _get_text(ctx.varName)
         val = self.visit(ctx.assignValue)
         return AssignStatement(name=name, value=val, line=ctx.start.line)
+
+    # ── call ──────────────────────────────────────────────────────────
+    def visitCallStmt(self, ctx):
+        callee = _get_text(ctx.funcName)
+        args = [self.visit(e) for e in ctx.expr()] if ctx.expr() else []
+        return CallStatement(
+            callee=callee,
+            args=[a for a in args if a is not None],
+            line=ctx.start.line,
+        )
 
     # ── if/else ──────────────────────────────────────────────────────
     def visitIfStmt(self, ctx):

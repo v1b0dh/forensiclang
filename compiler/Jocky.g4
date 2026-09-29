@@ -7,11 +7,14 @@ program     : statement* EOF ;
 
 statement   : collectStmt
             | scanStmt
+            | carveStmt
+            | eraseStmt
             | analyzeStmt
             | timelineStmt
             | correlateStmt
             | reportStmt
             | assignStmt
+            | callStmt
             | ifStmt
             | forStmt
             | funcDecl
@@ -39,6 +42,36 @@ scanTarget  : 'network' 'interfaces'
             | 'open' 'ports'
             | 'loaded' 'modules'
             ;
+
+carveStmt   : 'carve' 'disk' 'from' 'drive' drive=strOrId
+              ('types' '[' (carveType (',' carveType)*)? ']')?
+              ('mode' carveMode)?
+              ('confidence_threshold' threshold=NUMBER)?
+              exportClause?
+            ;
+
+carveType   : 'pdf' | 'png' | 'jpg' | 'jpeg' | 'gif'
+            | 'zip' | 'docx' | 'xlsx' | 'pptx' | 'office'
+            | 'sqlite' | 'pcap' | 'pe' | 'exe' | 'dll' | 'elf'
+            | 'all' | id
+            ;
+
+carveMode   : 'quick' | 'deep' | 'fragmented' ;
+
+eraseStmt   : 'erase' targetType=eraseTarget targetPath=strOrId
+              'method' method=eraseMethod
+              ('passes' passes=NUMBER)?
+              ('clean_metadata' cleanMetadata=BOOL)?
+              ('clean_slack' cleanSlack=BOOL)?
+              ('audit' auditFile=strOrId)?
+              ('certificate' certFile=strOrId)?
+            ;
+
+eraseTarget : 'drive' | 'file' | 'folder' ;
+
+eraseMethod : 'zero' | 'random' | 'nist_800_88_clear' | 'nist_800_88_purge' | 'dod_5220_22_m' | 'gutmann' | id ;
+
+strOrId     : id | STRING ;
 
 analyzeStmt : 'analyze' targetRef=analyzeTarget
               'using' pluginName=STRING
@@ -97,7 +130,7 @@ filterExpr   : fieldName=id filterOp? filterValue ;
 filterValue  : STRING | NUMBER | identifierList | id ;
 filterOp     : '==' | '!=' | 'contains' | 'in' ;
 
-exportClause : 'export' 'to' 'artifact' exportName=STRING ;
+exportClause : 'export' ('to' 'artifact')? exportName=strOrId ;
 
 source      : 'pid' pidValue=pidRef
             | 'host' hostValue=hostRef
@@ -111,6 +144,8 @@ hostRef     : STRING | id ;
 // Control flow & declarations
 // ─────────────────────────────────────────────────────────────────
 assignStmt  : varName=id '=' assignValue=expr ;
+
+callStmt    : funcName=id '(' (expr (',' expr)*)? ')' ;
 
 ifStmt      : 'if' condition=expr thenBlock=block
               ('else' elseBlock=block)?
@@ -135,6 +170,18 @@ id          : IDENTIFIER
             | 'interfaces'
             | 'processes'
             | 'artifacts'
+            | 'drive'
+            | 'file'
+            | 'folder'
+            | 'method'
+            | 'passes'
+            | 'clean_metadata'
+            | 'clean_slack'
+            | 'audit'
+            | 'certificate'
+            | 'types'
+            | 'mode'
+            | 'confidence_threshold'
             ;
 
 // ─────────────────────────────────────────────────────────────────

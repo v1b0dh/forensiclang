@@ -20,9 +20,9 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from compiler.ast.nodes import (
-    Program, CollectStatement, ScanStatement, TimelineStatement,
-    CorrelateStatement, ReportStatement, AnalyzeStatement,
-    AssignStatement, IfStatement, ForStatement, FuncDecl,
+    Program, CollectStatement, ScanStatement, CarveStatement, EraseStatement,
+    TimelineStatement, CorrelateStatement, ReportStatement, AnalyzeStatement,
+    AssignStatement, CallStatement, IfStatement, ForStatement, FuncDecl,
 )
 
 
@@ -81,6 +81,9 @@ class JockyCodeGen:
             "jocky_generate_report":      extern(void, [i8p, i8p, i8p], "jocky_generate_report"),
             # Analyze
             "jocky_analyze":              extern(void, [i8p, i8p], "jocky_analyze"),
+            # Carving & Sanitization
+            "jocky_carve_disk":           extern(void, [i8p, i8p, i8p, ir.DoubleType(), i8p], "jocky_carve_disk"),
+            "jocky_erase_target":         extern(void, [i8p, i8p, i8p, i32, i32, i32, i8p, i8p], "jocky_erase_target"),
         }
 
     # ──────────────────────────── Entry point ─────────────────────────────
@@ -104,12 +107,15 @@ class JockyCodeGen:
                 self._emit_statement(s)
             return
         dispatch = {
-            CollectStatement:  self._emit_collect,
-            ScanStatement:     self._emit_scan,
-            TimelineStatement: self._emit_timeline,
-            CorrelateStatement:self._emit_correlate,
-            ReportStatement:   self._emit_report,
-            AnalyzeStatement:  self._emit_analyze,
+            CollectStatement:   self._emit_collect,
+            ScanStatement:      self._emit_scan,
+            CarveStatement:     self._emit_carve,
+            EraseStatement:     self._emit_erase,
+            TimelineStatement:  self._emit_timeline,
+            CorrelateStatement: self._emit_correlate,
+            ReportStatement:    self._emit_report,
+            AnalyzeStatement:   self._emit_analyze,
+            CallStatement:      self._emit_call,
         }
         fn = dispatch.get(type(node))
         if fn:
@@ -179,6 +185,29 @@ class JockyCodeGen:
         target = self._str(node.target)
         plugin = self._str(node.plugin)
         self.builder.call(self.rt["jocky_analyze"], [target, plugin])
+
+    def _emit_carve(self, node: CarveStatement):
+        drive = self._str(node.drive)
+        types = self._str(",".join(node.types) if node.types else "all")
+        mode = self._str(node.mode or "deep")
+        thresh = ir.Constant(ir.DoubleType(), float(node.confidence_threshold if node.confidence_threshold is not None else 0.0))
+        export = self._str(node.export_name or "carved")
+        self.builder.call(self.rt["jocky_carve_disk"], [drive, types, mode, thresh, export])
+
+    def _emit_erase(self, node: EraseStatement):
+        tt = self._str(node.target_type)
+        tp = self._str(node.target_path)
+        m = self._str(node.method)
+        passes = ir.Constant(ir.IntType(32), node.passes if node.passes is not None else 1)
+        meta = ir.Constant(ir.IntType(32), 1 if node.clean_metadata else 0)
+        slack = ir.Constant(ir.IntType(32), 1 if node.clean_slack else 0)
+        audit = self._str(node.audit_file or "")
+        cert = self._str(node.certificate_file or "")
+        self.builder.call(self.rt["jocky_erase_target"], [tt, tp, m, passes, meta, slack, audit, cert])
+
+    def _emit_call(self, node: CallStatement):
+        # Function calls in forensic pipelines - emit comment/no-op marker in IR
+        pass
 
     # ─────────────────────── String constant helper ────────────────────────
     def _str(self, s: str) -> ir.Value:

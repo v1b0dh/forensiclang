@@ -15,11 +15,14 @@ program = { SOI ~ statement* ~ EOI }
 statement = {
     collect_stmt
     | scan_stmt
+    | carve_stmt
+    | erase_stmt
     | analyze_stmt
     | timeline_stmt
     | correlate_stmt
     | report_stmt
     | assign_stmt
+    | call_stmt
     | if_stmt
     | for_stmt
     | func_decl
@@ -37,6 +40,54 @@ collect_stmt = {
 }
 
 collect_target = { "memory" | "disk" | "registry" | "artifacts" }
+
+// carve disk from drive "E:" types [pdf, docx, sqlite] mode deep confidence_threshold 0.75 export "carved"
+carve_stmt = {
+    "carve" ~ "disk"
+    ~ "from" ~ "drive" ~ (string | ident)
+    ~ ("types" ~ "[" ~ (carve_type ~ ("," ~ carve_type)*)? ~ "]")?
+    ~ ("mode" ~ carve_mode)?
+    ~ ("confidence_threshold" ~ number)?
+    ~ export_clause?
+}
+
+carve_type = {
+    "pdf" | "png" | "jpg" | "jpeg" | "gif"
+    | "zip" | "docx" | "xlsx" | "pptx" | "office"
+    | "sqlite" | "pcap" | "pe" | "exe" | "dll" | "elf"
+    | "all" | ident
+}
+
+carve_mode = { "quick" | "deep" | "fragmented" }
+
+// erase drive "\\.\PhysicalDrive2" method nist_800_88_clear passes 1 clean_metadata true clean_slack true audit "audit.json" certificate "cert.pdf"
+erase_stmt = {
+    "erase" ~ erase_target ~ (string | ident)
+    ~ "method" ~ erase_method
+    ~ passes_clause?
+    ~ clean_metadata_clause?
+    ~ clean_slack_clause?
+    ~ audit_clause?
+    ~ cert_clause?
+}
+
+passes_clause         = { "passes" ~ number }
+clean_metadata_clause = { "clean_metadata" ~ boolean }
+clean_slack_clause    = { "clean_slack" ~ boolean }
+audit_clause          = { "audit" ~ (string | ident) }
+cert_clause           = { "certificate" ~ (string | ident) }
+
+erase_target = { "drive" | "file" | "folder" }
+
+erase_method = {
+    "zero"
+    | "random"
+    | "nist_800_88_clear"
+    | "nist_800_88_purge"
+    | "dod_5220_22_m"
+    | "gutmann"
+    | ident
+}
 
 // scan processes on eth0 filter by name contains "cmd"
 scan_stmt = {
@@ -116,7 +167,7 @@ filter_expr   = { ident ~ filter_op? ~ filter_value }
 filter_value  = { string | number | identifier_list | ident }
 filter_op     = { "==" | "!=" | "contains" | "in" }
 
-export_clause = { "export" ~ "to" ~ "artifact" ~ string }
+export_clause = { "export" ~ ("to" ~ "artifact")? ~ (string | ident) }
 
 source = {
     "pid" ~ (number | ident)
@@ -126,6 +177,8 @@ source = {
 
 // ──────────────────── Control Flow & Declarations ────────────────
 assign_stmt = { ident ~ "=" ~ expr }
+call_stmt   = { ident ~ "(" ~ arg_list? ~ ")" }
+arg_list    = { expr ~ ("," ~ expr)* }
 if_stmt     = { "if" ~ expr ~ block ~ ("else" ~ block)? }
 for_stmt    = { "for" ~ ident ~ "each" ~ ident ~ block }
 func_decl   = { "function" ~ ident ~ "(" ~ param_list? ~ ")" ~ block }
@@ -159,11 +212,14 @@ ident = @{
 // Reserved words that are NOT valid standalone identifiers
 // (pest requires explicit disambiguation for PEG grammars)
 reserved = {
-    ( "collect" | "scan" | "analyze" | "correlate" | "timeline"
+    ( "collect" | "scan" | "carve" | "erase" | "analyze" | "correlate" | "timeline"
     | "report" | "function" | "if" | "else" | "for" | "each"
     | "return" | "true" | "false" | "not" | "and" | "or"
     | "from" | "to" | "filter" | "by" | "with" | "as"
     | "using" | "export" | "import" | "flag" | "on"
     | "include" | "output" | "format" | "threshold"
+    | "drive" | "file" | "folder" | "method" | "passes"
+    | "clean_metadata" | "clean_slack" | "audit" | "certificate"
+    | "types" | "mode" | "confidence_threshold"
     ) ~ !(ASCII_ALPHANUMERIC | "_")
 }

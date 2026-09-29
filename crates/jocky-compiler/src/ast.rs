@@ -20,14 +20,80 @@ pub struct Program {
 pub enum Statement {
     Collect(CollectStatement),
     Scan(ScanStatement),
+    Carve(CarveStatement),
+    Erase(EraseStatement),
     Analyze(AnalyzeStatement),
     Timeline(TimelineStatement),
     Correlate(CorrelateStatement),
     Report(ReportStatement),
     Assign(AssignStatement),
+    Call(CallStatement),
     If(IfStatement),
     For(ForStatement),
     FuncDecl(FuncDecl),
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Forensic Carving & Erasure statements
+// ─────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CarveStatement {
+    pub drive: String,
+    pub target_types: Vec<String>,
+    pub mode: CarveMode,
+    pub confidence_threshold: Option<f64>,
+    pub export_name: Option<String>,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CarveMode {
+    Quick,
+    Deep,
+    Fragmented,
+}
+
+impl Default for CarveMode {
+    fn default() -> Self {
+        CarveMode::Deep
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EraseStatement {
+    pub target_type: EraseTarget,
+    pub target_path: String,
+    pub method: EraseMethod,
+    pub passes: Option<usize>,
+    pub clean_metadata: bool,
+    pub clean_slack: bool,
+    pub audit_file: Option<String>,
+    pub certificate_file: Option<String>,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EraseTarget {
+    Drive,
+    File,
+    Folder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EraseMethod {
+    Zero,
+    Random,
+    Nist800_88Clear,
+    Nist800_88Purge,
+    Dod5220_22M,
+    Gutmann,
+}
+
+impl Default for EraseMethod {
+    fn default() -> Self {
+        EraseMethod::Nist800_88Clear
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -133,6 +199,13 @@ impl Default for ReportFormat {
 pub struct AssignStatement {
     pub name: String,
     pub value: Expr,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallStatement {
+    pub callee: String,
+    pub args: Vec<Expr>,
     pub line: usize,
 }
 

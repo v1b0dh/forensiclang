@@ -145,3 +145,32 @@ def test_ast_timeline():
     )
     assert 'registry' in ts.sources
     assert ts.output_file == 'out.html'
+
+
+@skip_if_no_compiler
+def test_carve_disk():
+    script = 'carve disk from drive "E:" types [pdf, docx, sqlite] mode deep confidence_threshold 0.75 export to artifact "carved_docs"'
+    ir = compile_string(script)
+    assert 'jocky_carve_disk' in ir
+    assert 'call void' in ir
+
+
+@skip_if_no_compiler
+def test_erase_target():
+    script = 'erase drive "\\\\.\\PhysicalDrive2" method nist_800_88_clear passes 1 clean_metadata true clean_slack true audit "audit.json" certificate "cert.pdf"'
+    ir = compile_string(script)
+    assert 'jocky_erase_target' in ir
+    assert 'call void' in ir
+
+
+@skip_if_no_compiler
+def test_sanitization_and_recovery_playbook():
+    path = os.path.join(os.path.dirname(__file__), "..", "stdlib", "jocky", "sanitization_and_recovery.jky")
+    with open(path, "r", encoding="utf-8") as f:
+        src = f.read()
+    ir = compile_string(src)
+    assert 'jocky_main' in ir
+    assert 'jocky_erase_target' in ir
+    assert 'jocky_carve_disk' in ir
+    assert 'jocky_generate_report' in ir
+

@@ -42,11 +42,14 @@ fn build_statement(pair: Pair<Rule>) -> Result<Option<Statement>, String> {
     match inner.as_rule() {
         Rule::collect_stmt => Ok(Some(Statement::Collect(build_collect(inner, line)?))),
         Rule::scan_stmt => Ok(Some(Statement::Scan(build_scan(inner, line)?))),
+        Rule::carve_stmt => Ok(Some(Statement::Carve(build_carve(inner, line)?))),
+        Rule::erase_stmt => Ok(Some(Statement::Erase(build_erase(inner, line)?))),
         Rule::analyze_stmt => Ok(Some(Statement::Analyze(build_analyze(inner, line)?))),
         Rule::timeline_stmt => Ok(Some(Statement::Timeline(build_timeline(inner, line)?))),
         Rule::correlate_stmt => Ok(Some(Statement::Correlate(build_correlate(inner, line)?))),
         Rule::report_stmt => Ok(Some(Statement::Report(build_report(inner, line)?))),
         Rule::assign_stmt => Ok(Some(Statement::Assign(build_assign(inner, line)?))),
+        Rule::call_stmt => Ok(Some(Statement::Call(build_call(inner, line)?))),
         Rule::if_stmt => Ok(Some(Statement::If(build_if(inner, line)?))),
         Rule::for_stmt => Ok(Some(Statement::For(build_for(inner, line)?))),
         Rule::func_decl => Ok(Some(Statement::FuncDecl(build_func_decl(inner, line)?))),
@@ -126,6 +129,146 @@ fn build_scan(pair: Pair<Rule>, line: usize) -> Result<ScanStatement, String> {
         target,
         interface,
         filter_expr,
+        line,
+    })
+}
+
+// ─────────────────────────── Carve ───────────────────────────────
+
+fn build_carve(pair: Pair<Rule>, line: usize) -> Result<CarveStatement, String> {
+    let mut drive = String::new();
+    let mut target_types = Vec::new();
+    let mut mode = CarveMode::Deep;
+    let mut confidence_threshold = None;
+    let mut export_name = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::string => {
+                if drive.is_empty() {
+                    drive = strip_quotes(inner.as_str());
+                }
+            }
+            Rule::ident => {
+                if drive.is_empty() {
+                    drive = inner.as_str().to_string();
+                }
+            }
+            Rule::carve_type => {
+                target_types.push(inner.as_str().to_string());
+            }
+            Rule::carve_mode => {
+                mode = match inner.as_str() {
+                    "quick" => CarveMode::Quick,
+                    "deep" => CarveMode::Deep,
+                    "fragmented" => CarveMode::Fragmented,
+                    other => return Err(format!("Unknown carve mode: {other}")),
+                };
+            }
+            Rule::number => {
+                confidence_threshold = inner.as_str().parse().ok();
+            }
+            Rule::export_clause => {
+                export_name = inner
+                    .into_inner()
+                    .find(|p| p.as_rule() == Rule::string || p.as_rule() == Rule::ident)
+                    .map(|p| strip_quotes(p.as_str()));
+            }
+            _ => {}
+        }
+    }
+
+    Ok(CarveStatement {
+        drive,
+        target_types,
+        mode,
+        confidence_threshold,
+        export_name,
+        line,
+    })
+}
+
+// ─────────────────────────── Erase ───────────────────────────────
+
+fn build_erase(pair: Pair<Rule>, line: usize) -> Result<EraseStatement, String> {
+    let mut target_type = EraseTarget::File;
+    let mut target_path = String::new();
+    let mut method = EraseMethod::Nist800_88Clear;
+    let mut passes = None;
+    let mut clean_metadata = false;
+    let mut clean_slack = false;
+    let mut audit_file = None;
+    let mut certificate_file = None;
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::erase_target => {
+                target_type = match inner.as_str() {
+                    "drive" => EraseTarget::Drive,
+                    "file" => EraseTarget::File,
+                    "folder" => EraseTarget::Folder,
+                    other => return Err(format!("Unknown erase target: {other}")),
+                };
+            }
+            Rule::erase_method => {
+                method = match inner.as_str().to_ascii_lowercase().replace('-', "_").as_str() {
+                    "zero" => EraseMethod::Zero,
+                    "random" => EraseMethod::Random,
+                    "nist_800_88_clear" => EraseMethod::Nist800_88Clear,
+                    "nist_800_88_purge" => EraseMethod::Nist800_88Purge,
+                    "dod_5220_22_m" => EraseMethod::Dod5220_22M,
+                    "gutmann" => EraseMethod::Gutmann,
+                    other => return Err(format!("Unknown erase method: {other}")),
+                };
+            }
+            Rule::string => {
+                if target_path.is_empty() {
+                    target_path = strip_quotes(inner.as_str());
+                }
+            }
+            Rule::ident => {
+                if target_path.is_empty() {
+                    target_path = inner.as_str().to_string();
+                }
+            }
+            Rule::passes_clause => {
+                if let Some(num_pair) = inner.into_inner().find(|p| p.as_rule() == Rule::number) {
+                    passes = num_pair.as_str().parse().ok();
+                }
+            }
+            Rule::clean_metadata_clause => {
+                if let Some(b_pair) = inner.into_inner().find(|p| p.as_rule() == Rule::boolean) {
+                    clean_metadata = b_pair.as_str() == "true";
+                }
+            }
+            Rule::clean_slack_clause => {
+                if let Some(b_pair) = inner.into_inner().find(|p| p.as_rule() == Rule::boolean) {
+                    clean_slack = b_pair.as_str() == "true";
+                }
+            }
+            Rule::audit_clause => {
+                if let Some(val_pair) = inner.into_inner().find(|p| p.as_rule() == Rule::string || p.as_rule() == Rule::ident) {
+                    audit_file = Some(strip_quotes(val_pair.as_str()));
+                }
+            }
+            Rule::cert_clause => {
+                if let Some(val_pair) = inner.into_inner().find(|p| p.as_rule() == Rule::string || p.as_rule() == Rule::ident) {
+                    certificate_file = Some(strip_quotes(val_pair.as_str()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(EraseStatement {
+        target_type,
+        target_path,
+        method,
+        passes,
+        clean_metadata,
+        clean_slack,
+        audit_file,
+        certificate_file,
         line,
     })
 }
@@ -294,6 +437,26 @@ fn build_assign(pair: Pair<Rule>, line: usize) -> Result<AssignStatement, String
     let value = build_expr(value_pair)?;
 
     Ok(AssignStatement { name, value, line })
+}
+
+// ─────────────────────────── Call ────────────────────────────────
+
+fn build_call(pair: Pair<Rule>, line: usize) -> Result<CallStatement, String> {
+    let mut inner = pair.into_inner();
+    let callee = inner.next().ok_or("Missing callee in call statement")?.as_str().to_string();
+    let mut args = Vec::new();
+
+    if let Some(arg_list_pair) = inner.next() {
+        for arg in arg_list_pair.into_inner() {
+            args.push(build_expr(arg)?);
+        }
+    }
+
+    Ok(CallStatement {
+        callee,
+        args,
+        line,
+    })
 }
 
 // ─────────────────────────── If/Else ─────────────────────────────
@@ -655,6 +818,57 @@ mod tests {
                 assert_eq!(r.format, ReportFormat::Json);
             }
             other => panic!("Expected Report, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_carve_statement() {
+        let src = r#"carve disk from drive "E:" types [pdf, docx, sqlite] mode deep confidence_threshold 0.75 export "carved_artifacts""#;
+        let program = parse(src).unwrap();
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Carve(c) => {
+                assert_eq!(c.drive, "E:");
+                assert_eq!(c.target_types, vec!["pdf", "docx", "sqlite"]);
+                assert_eq!(c.mode, CarveMode::Deep);
+                assert_eq!(c.confidence_threshold, Some(0.75));
+                assert_eq!(c.export_name.as_deref(), Some("carved_artifacts"));
+            }
+            other => panic!("Expected Carve, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_erase_statement() {
+        let src = r#"erase drive "\\.\PhysicalDrive2" method nist_800_88_clear passes 1 clean_metadata true clean_slack true audit "audit.json" certificate "cert.pdf""#;
+        let program = parse(src).unwrap();
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Erase(e) => {
+                assert_eq!(e.target_type, EraseTarget::Drive);
+                assert_eq!(e.target_path, r"\\.\PhysicalDrive2");
+                assert_eq!(e.method, EraseMethod::Nist800_88Clear);
+                assert_eq!(e.passes, Some(1));
+                assert!(e.clean_metadata);
+                assert!(e.clean_slack);
+                assert_eq!(e.audit_file.as_deref(), Some("audit.json"));
+                assert_eq!(e.certificate_file.as_deref(), Some("cert.pdf"));
+            }
+            other => panic!("Expected Erase, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_call_statement() {
+        let src = r#"certified_drive_wipe(drive_path, "disposal_audit.json", "destruction_cert.pdf")"#;
+        let program = parse(src).unwrap();
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Call(c) => {
+                assert_eq!(c.callee, "certified_drive_wipe");
+                assert_eq!(c.args.len(), 3);
+            }
+            other => panic!("Expected Call, got {other:?}"),
         }
     }
 
