@@ -11,6 +11,8 @@ JOCKY replaces hundreds of lines of fragile forensic scripts and OS API boilerpl
 2. [Forensic Statements](#2-forensic-statements)
    - [`collect`](#collect)
    - [`scan`](#scan)
+   - [`carve`](#carve)
+   - [`erase`](#erase)
    - [`timeline`](#timeline)
    - [`correlate`](#correlate)
    - [`analyze`](#analyze)
@@ -21,6 +23,7 @@ JOCKY replaces hundreds of lines of fragile forensic scripts and OS API boilerpl
    - [Using the Rust Compiler (`jockc`)](#using-the-rust-compiler-jockc)
    - [Using the Python / LLVM Compiler (`jockc.py`)](#using-the-python--llvm-compiler-jockcpy)
 6. [Forensic Artifact Format (`.jkya`)](#6-forensic-artifact-format-jkya)
+7. [Server REST API & Dashboard](#7-server-rest-api--dashboard)
 
 ---
 
@@ -93,6 +96,107 @@ scan processes;
 
 // Passive network packet capture on a specific adapter
 scan network_interfaces on interface "eth0" where port == 443;
+```
+
+---
+
+### `carve`
+Performs deep forensic-grade file carving directly from raw physical disks, unallocated clusters, or forensic disk images (`.raw`, `.dd`, `.img`).
+
+Unlike simple header-matching tools, JOCKY's carving engine performs **deep structural validation** (e.g. PNG chunk streams, SQLite page allocators, JPEG markers, ZIP central directories) and computes a calibrated **confidence score** ($0.00 - 1.00$) to eliminate corrupt false positives.
+
+#### Syntax:
+```jocky
+carve disk from drive <target_path>
+    [types [<type1>, <type2>, ...]]
+    [mode <quick | deep | fragmented>]
+    [confidence_threshold <score>]
+    [export [to artifact] <artifact_name>]
+```
+
+- **Supported Formats**:
+  - Documents: `pdf`, `docx`, `xlsx`, `pptx`, `office`
+  - Images: `png`, `jpg`, `jpeg`, `gif`
+  - Databases: `sqlite`
+  - Network Captures: `pcap`
+  - Executables: `pe` (`exe`, `dll`), `elf`
+  - All Formats: `all`
+- **Carving Modes**:
+  - `quick`: Aligned sector jumps (512-byte boundaries) for high-speed triage.
+  - `deep`: Exhaustive byte-by-byte sweep with full structural cross-validation.
+  - `fragmented`: Entropy-guided bifragment cluster stitcher for discontiguous files.
+- **Evidential Export**: Carved files are packaged into a tamper-evident `.jkya` container with individual SHA-256 hashes and offset maps.
+
+#### Examples:
+```jocky
+// Deep file recovery from secondary drive
+carve disk from drive "\\\\.\\PhysicalDrive1"
+    types [pdf, docx, sqlite]
+    mode deep
+    confidence_threshold 0.75
+    export to artifact "recovered_evidence";
+
+// Quick triage on raw virtual disk image
+carve disk from drive "evidence.dd"
+    types [sqlite, pcap]
+    mode quick
+    confidence_threshold 0.50
+    export "triage_artifacts";
+```
+
+---
+
+### `erase`
+Executes certified, multi-pass cryptographic data sanitization on raw physical drives, folders, or specific files to legally destroy sensitive information and prevent forensic recovery.
+
+Complies with global data destruction mandates including **NIST SP 800-88 Revision 1** and **DoD 5220.22-M**.
+
+#### Safety Interlocks:
+JOCKY includes active safety interlocks. Attempting to sanitize an active operating system boot drive (`C:`, `/`, `/dev/sda`) is blocked immediately unless an explicit `--force-system-drive` override is granted.
+
+#### Syntax:
+```jocky
+erase <drive | file | folder> <target_path>
+    method <sanitization_method>
+    [passes <number>]
+    [clean_metadata <true | false>]
+    [clean_slack <true | false>]
+    [audit <audit_log_path>]
+    [certificate <certificate_path>]
+```
+
+- **Target Types**: `drive` (raw block device or partition), `file` (single file shredder), `folder` (recursive tree wipe).
+- **Sanitization Standards**:
+  - `nist_800_88_clear`: NIST SP 800-88 Clear (Pseudo-random overwrite + read verify).
+  - `nist_800_88_purge`: NIST SP 800-88 Purge (Cryptographic multi-pass overwrite).
+  - `dod_5220_22_m`: DoD 5220.22-M (Pass 1: $0\times00$, Pass 2: $0\times\text{FF}$, Pass 3: PRNG + verify).
+  - `zero`: Single-pass zeroing ($0\times00$).
+  - `random`: High-entropy CSPRNG random stream.
+  - `gutmann`: 35-pass magnetic media overwrite algorithm.
+- **Deep Clean Options**:
+  - `clean_metadata`: Obfuscates file names to randomized alphanumeric strings, truncates file sizes to 0 bytes, and scrubs directory index records ($MFT / Inodes).
+  - `clean_slack`: Zeros residual cluster tip slack space to prevent cluster tail leakage.
+- **Cryptographic Audit Certificate**:
+  - Automatically generates an `ErasureCertificate` containing hardware MAC ID, algorithm, execution timestamp, SHA-256 verification hash, and an **HMAC-SHA256 digital signature**.
+
+#### Examples:
+```jocky
+// Certified media disposal complying with DoD 5220.22-M
+erase drive "\\\\.\\PhysicalDrive2"
+    method dod_5220_22_m
+    passes 3
+    clean_metadata true
+    clean_slack true
+    audit "disposal_audit.json"
+    certificate "destruction_cert.pdf";
+
+// Fast file shredder with metadata obfuscation
+erase file "secret_keys.pem"
+    method nist_800_88_clear
+    passes 1
+    clean_metadata true
+    clean_slack true
+    certificate "cert.json";
 ```
 
 ---
@@ -222,6 +326,59 @@ function full_forensic_triage(hostname, analyst_pid) {
 }
 ```
 
+### Media Disposal & Zero-Residual Carve Audit (`stdlib/jocky/sanitization_and_recovery.jky`)
+Orchestrates certified storage wiping and immediately performs deep forensic carving to formally verify that zero residual files can be recovered:
+
+```jocky
+function certified_drive_wipe(drive_path, audit_log, cert_file) {
+  erase drive drive_path
+    method nist_800_88_clear
+    passes 1
+    clean_metadata true
+    clean_slack true
+    audit audit_log
+    certificate cert_file
+}
+
+function verify_zero_residual_carve(drive_path, artifact_out) {
+  carve disk from drive drive_path
+    types [all]
+    mode deep
+    confidence_threshold 0.50
+    export to artifact artifact_out
+}
+
+function full_media_disposal_cycle(drive_path) {
+  certified_drive_wipe(drive_path, "disposal_audit.json", "destruction_cert.pdf")
+  verify_zero_residual_carve(drive_path, "post_wipe_evidence")
+  report "disposal_audit" as "compliance_report.html" format html
+}
+```
+
+### Certified Storage Sanitization (`stdlib/jocky/sanitization.jky`)
+```jocky
+function sanitize_physical_volume(target_device, audit_out, cert_out) {
+  erase drive target_device
+    method dod_5220_22_m
+    passes 3
+    clean_metadata true
+    clean_slack true
+    audit audit_out
+    certificate cert_out
+}
+```
+
+### Deep Evidence Carving Routine (`stdlib/jocky/recovery.jky`)
+```jocky
+function carve_evidence_disk(drive_path, output_artifact) {
+  carve disk from drive drive_path
+    types [pdf, png, jpg, sqlite, zip, pcap]
+    mode deep
+    confidence_threshold 0.70
+    export to artifact output_artifact
+}
+```
+
 ---
 
 ## 5. Compiling & Running JOCKY Scripts
@@ -284,3 +441,50 @@ When JOCKY scripts collect evidence, data is written into `.jkya` (JOCKY Artifac
 - **Integrity Verification**: Crytographic verification hashes to maintain chain of custody.
 
 Artifacts can be parsed programmatically using the `jocky-runtime` library or inspected through the JOCKY API and Dashboard.
+
+---
+
+## 7. Server REST API & Dashboard
+
+JOCKY includes an enterprise management backend and interactive React/Vite web dashboard for orchestrating investigations and viewing real-time evidence.
+
+### Running the Services
+
+1. **Launch the FastAPI Management Server**:
+   ```powershell
+   uvicorn server.main:app --reload --port 8000
+   ```
+
+2. **Launch the Web Dashboard**:
+   ```powershell
+   cd dashboard
+   npm run dev
+   ```
+   Open `http://localhost:5173` in your browser.
+
+### Key API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/drives` | Enumerate host physical volumes and detect OS system boot partitions |
+| `POST` | `/api/sanitize/drive` | Start background certified drive wipe with safety interlock protection |
+| `POST` | `/api/sanitize/file` | Multi-pass file shredder with metadata obfuscation & slack wiping |
+| `GET` | `/api/sanitize/status/{id}` | Real-time wiping progress, pass counter, and verification status |
+| `GET` | `/api/sanitize/certificate/{id}` | Download HMAC-SHA256 signed destruction certificate (`json` or `text`) |
+| `POST` | `/api/carve/start` | Launch forensic file carving job on a disk image or block device |
+| `GET` | `/api/carve/status/{id}` | Real-time progress, sector streamer, and discovered file metadata list |
+| `GET` | `/api/carve/artifact/{id}` | Download carved evidential items as a `.jkya` container |
+| `WS` | `/api/ws/progress/{id}` | WebSocket stream for live sector-by-sector visualization |
+
+### Interactive Dashboard Features
+
+- **Forensic Carving Workbench**:
+  - Live 64-block Physical Sector Map showing cluster scanning and header discovery in real time.
+  - Formats selector, carving modes (`Quick`, `Deep`, `Fragmented`), and confidence threshold slider.
+  - Interactive **Hex Inspector Modal** for raw byte examination and SHA-256 verification.
+  - Direct `.jkya` evidential export.
+- **Certified Sanitization Center**:
+  - Storage volume selector with automatic **Critical Safety Interlock Alerts** when an OS volume is detected.
+  - Standard selector: NIST SP 800-88 Clear/Purge, DoD 5220.22-M, Single-Pass Zero, and Gutmann 35-pass.
+  - Live multi-pass progress bar and **Official Certificate of Sanitization Card** displaying the cryptographic seal.
+
