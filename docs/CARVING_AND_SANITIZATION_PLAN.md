@@ -120,55 +120,55 @@ erase file "D:\\Confidential\\evidence.db"
 ## 4. Detailed Step-by-Step Implementation Plan
 
 ### Phase 1: Engine Foundation in Rust (`crates/jocky-runtime`)
-- [ ] **Step 1.1 — Signature Database & Carving Base Types:**
+- [x] **Step 1.1 — Signature Database & Carving Base Types:**
   - Define `FileSignature` (magic start, optional footer, max size, mime type).
   - Implement signatures for PDF, PNG, JPG, GIF, ZIP (DOCX/XLSX/PPTX), SQLite, PCAP, ELF, PE (EXE/DLL).
-- [ ] **Step 1.2 — Sector Streamer & Direct Block Access:**
+- [x] **Step 1.2 — Sector Streamer & Direct Block Access:**
   - Implement read-only buffered chunk streamer for disks (`\\.\PhysicalDriveX` / `\\.\X:` on Windows, `/dev/sdX` on Linux) and raw image files (`.dd`, `.raw`, `.e01` stub).
-- [ ] **Step 1.3 — Structural Format Validators:**
+- [x] **Step 1.3 — Structural Format Validators:**
   - Implement validators that parse internal structure to filter out corrupt false positives.
   - Compute `confidence_score` (0.0 to 1.0) based on header match + internal segment valid + clean footer.
-- [ ] **Step 1.4 — Bifragment Gap Carver:**
+- [x] **Step 1.4 — Bifragment Gap Carver:**
   - For fragmented files (e.g. JPEG, PDF), use Shannon entropy calculations to identify cluster boundary discontinuities and reconnect fragmented segments.
-- [ ] **Step 1.5 — Sanitization Engine & Algorithms:**
+- [x] **Step 1.5 — Sanitization Engine & Algorithms:**
   - Implement data destruction patterns: Single pass zeros, NIST 800-88 Clear (pseudo-random overwrite + zero verify), DoD 5220.22-M (Pass 1: 0x00, Pass 2: 0xFF, Pass 3: Random + verify).
   - Implement direct disk sector overwriting with flush/sync barriers (`FILE_FLAG_NO_BUFFERING` / `O_DIRECT`).
-- [ ] **Step 1.6 — Metadata & Slack Space Cleanser:**
+- [x] **Step 1.6 — Metadata & Slack Space Cleanser:**
   - File shredder: overwrite file data, rename to random string, truncate to 0 bytes, then delete.
   - NTFS slack space wiper: calculate `file_size % cluster_size` and zero the residual cluster tip.
   - Windows `$I30` / directory record cleansing hooks.
-- [ ] **Step 1.7 — Cryptographic Audit Certificate Generator:**
+- [x] **Step 1.7 — Cryptographic Audit Certificate Generator:**
   - Create `ErasureCertificate`: hardware device ID, serial number, wiping standard, verification checksum, operator timestamp, cryptographic hash of the entire wipe log.
 
 ### Phase 2: Compiler & Language Integration (`crates/jocky-compiler`)
-- [ ] **Step 2.1 — Grammar Updates (`grammar.pest`):**
+- [x] **Step 2.1 — Grammar Updates (`grammar.pest`):**
   - Add rules for `carve_stmt` and `erase_stmt`.
   - Add tokens: `carve`, `erase`, `drive`, `folder`, `method`, `nist_800_88_clear`, `dod_5220_22_m`, `clean_metadata`, `confidence_threshold`, `certificate`.
-- [ ] **Step 2.2 — AST Node Definitions (`ast.rs`):**
+- [x] **Step 2.2 — AST Node Definitions (`ast.rs`):**
   - Define `CarveStatement` and `EraseStatement` structs with full enum support for methods and targets.
-- [ ] **Step 2.3 — Parser Dispatch (`parser.rs`):**
+- [x] **Step 2.3 — Parser Dispatch (`parser.rs`):**
   - Implement parse tree converters for `carve` and `erase`.
-- [ ] **Step 2.4 — Python Compiler Sync:**
+- [x] **Step 2.4 — Python Compiler Sync:**
   - Update `compiler/jocky.g4`, `compiler/ast/nodes.py`, and `compiler/codegen/llvm.py` with runtime dispatch stubs for `jocky_carve_disk` and `jocky_erase_target`.
 
 ### Phase 3: Server API & Queue Integration (`server/`)
-- [ ] **Step 3.1 — Fast-API Background Jobs:**
+- [x] **Step 3.1 — Fast-API Background Jobs:**
   - Add endpoints: `POST /api/carve/start`, `GET /api/carve/status/{job_id}`, `POST /api/sanitize/drive`, `POST /api/sanitize/file`.
-- [ ] **Step 3.2 — Progress Streaming:**
+- [x] **Step 3.2 — Progress Streaming:**
   - Provide SSE (Server-Sent Events) or WebSockets reporting sectors processed, carving matches found in real time, and pass progress.
-- [ ] **Step 3.3 — Certificate & Artifact Download Endpoints:**
+- [x] **Step 3.3 — Certificate & Artifact Download Endpoints:**
   - Download `.jkya` carved packages and signed PDF/JSON erasure certificates.
 
 ### Phase 4: UI Dashboard (`dashboard/`)
-- [ ] **Step 4.1 — Forensic Carving Workbench:**
+- [x] **Step 4.1 — Forensic Carving Workbench:**
   - Visual disk map, hex preview of carved segments, filterable table of recovered files categorized by file type with confidence badges.
-- [ ] **Step 4.2 — Certified Sanitization Center:**
+- [x] **Step 4.2 — Certified Sanitization Center:**
   - Drive selector with safety locks (prevent accidental OS drive wipe), standard selector (NIST, DoD), real-time progress gauge, and downloadable destruction certificate viewer.
 
 ### Phase 5: Verification & Standard Library
-- [ ] **Step 5.1 — Standard Library Routines (`stdlib/jocky/`):**
+- [x] **Step 5.1 — Standard Library Routines (`stdlib/jocky/`):**
   - Write standard scripts: `stdlib/jocky/sanitization.jky` and `stdlib/jocky/recovery.jky`.
-- [ ] **Step 5.2 — Automated End-to-End Test Suite:**
+- [x] **Step 5.2 — Automated End-to-End Test Suite:**
   - Write tests creating dummy formatted disk images, injecting known files, deleting them, running `carve`, asserting recovery, running `erase`, and asserting zero recoverability.
 
 ---

@@ -1,0 +1,23 @@
+// JOCKY Forensic Script: Deep File Carving & Recovery Routine
+// Implements structural header/footer scanning with confidence thresholding
+
+function carve_evidence_disk(drive_path, output_artifact) {
+  carve disk from drive drive_path
+    types [pdf, png, jpg, sqlite, zip, pcap]
+    mode deep
+    confidence_threshold 0.70
+    export to artifact output_artifact
+}
+
+function carve_quick_triage(drive_path, output_artifact) {
+  carve disk from drive drive_path
+    types [sqlite, pcap]
+    mode quick
+    confidence_threshold 0.50
+    export to artifact output_artifact
+}
+
+function full_investigation_playbook(drive_path) {
+  carve_evidence_disk(drive_path, "recovered_evidence")
+  report "recovered_evidence" as "investigation_report.html" format html
+}

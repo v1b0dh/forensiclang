@@ -174,3 +174,25 @@ def test_sanitization_and_recovery_playbook():
     assert 'jocky_carve_disk' in ir
     assert 'jocky_generate_report' in ir
 
+
+@skip_if_no_compiler
+def test_stdlib_sanitization_module():
+    path = os.path.join(os.path.dirname(__file__), "..", "stdlib", "jocky", "sanitization.jky")
+    with open(path, "r", encoding="utf-8") as f:
+        src = f.read()
+    ir = compile_string(src)
+    assert 'jocky_main' in ir
+    assert 'jocky_erase_target' in ir
+
+
+@skip_if_no_compiler
+def test_stdlib_recovery_module():
+    path = os.path.join(os.path.dirname(__file__), "..", "stdlib", "jocky", "recovery.jky")
+    with open(path, "r", encoding="utf-8") as f:
+        src = f.read()
+    ir = compile_string(src)
+    assert 'jocky_main' in ir
+    assert 'jocky_carve_disk' in ir
+    assert 'jocky_generate_report' in ir
+
+

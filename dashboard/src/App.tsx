@@ -1,23 +1,27 @@
 import { useState } from 'react'
 import {
   Server, Terminal, Archive, GitBranch, ShieldAlert,
-  Activity, type LucideIcon
+  Activity, Disc3, Flame, type LucideIcon
 } from 'lucide-react'
-import { AgentGrid }      from './components/AgentGrid'
-import { ScriptEditor }   from './components/ScriptEditor'
-import { ArtifactViewer } from './components/ArtifactViewer'
-import { TimelineView }   from './components/TimelineView'
-import { IOCCorrelation } from './components/IOCCorrelation'
-import { useAgentStore }  from './store/agentStore'
+import { AgentGrid }          from './components/AgentGrid'
+import { ScriptEditor }       from './components/ScriptEditor'
+import { ArtifactViewer }     from './components/ArtifactViewer'
+import { TimelineView }       from './components/TimelineView'
+import { IOCCorrelation }     from './components/IOCCorrelation'
+import { CarvingWorkbench }   from './components/CarvingWorkbench'
+import { SanitizationCenter } from './components/SanitizationCenter'
+import { useAgentStore }      from './store/agentStore'
 
-type View = 'agents' | 'editor' | 'artifacts' | 'timeline' | 'ioc'
+type View = 'agents' | 'editor' | 'artifacts' | 'timeline' | 'ioc' | 'carver' | 'sanitizer'
 
 const NAV_ITEMS: { id: View; label: string; icon: LucideIcon }[] = [
-  { id: 'agents',    label: 'Agents',    icon: Server      },
-  { id: 'editor',   label: 'Editor',    icon: Terminal    },
-  { id: 'artifacts',label: 'Artifacts', icon: Archive     },
-  { id: 'timeline', label: 'Timeline',  icon: GitBranch   },
-  { id: 'ioc',      label: 'IOC Match', icon: ShieldAlert },
+  { id: 'agents',    label: 'Agents',      icon: Server      },
+  { id: 'editor',    label: 'Editor',      icon: Terminal    },
+  { id: 'carver',    label: 'File Carver', icon: Disc3       },
+  { id: 'sanitizer', label: 'Sanitizer',   icon: Flame       },
+  { id: 'artifacts', label: 'Artifacts',   icon: Archive     },
+  { id: 'timeline',  label: 'Timeline',    icon: GitBranch   },
+  { id: 'ioc',       label: 'IOC Match',   icon: ShieldAlert },
 ]
 
 export function App() {
@@ -58,6 +62,8 @@ export function App() {
       <main id="main-content">
         {view === 'agents'    && <AgentGrid />}
         {view === 'editor'    && <ScriptEditor />}
+        {view === 'carver'    && <CarvingWorkbench />}
+        {view === 'sanitizer' && <SanitizationCenter />}
         {view === 'artifacts' && <ArtifactViewer />}
         {view === 'timeline'  && <TimelineView />}
         {view === 'ioc'       && <IOCCorrelation />}
