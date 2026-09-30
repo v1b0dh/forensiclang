@@ -61,11 +61,14 @@ carveMode   : 'quick' | 'deep' | 'fragmented' ;
 eraseStmt   : 'erase' targetType=eraseTarget targetPath=strOrId
               'method' method=eraseMethod
               ('passes' passes=NUMBER)?
-              ('clean_metadata' cleanMetadata=BOOL)?
-              ('clean_slack' cleanSlack=BOOL)?
+              ('clean_metadata' cleanMetadata=boolean)?
+              ('clean_slack' cleanSlack=boolean)?
               ('audit' auditFile=strOrId)?
               ('certificate' certFile=strOrId)?
             ;
+
+boolean     : BOOL | 'true' | 'false' ;
+
 
 eraseTarget : 'drive' | 'file' | 'folder' ;
 
@@ -188,10 +191,10 @@ id          : IDENTIFIER
 // Tokens
 // ─────────────────────────────────────────────────────────────────
 TIMESTAMP   : '"' [0-9][0-9][0-9][0-9] '-' [0-9][0-9] '-' [0-9][0-9] '"' ;
+BOOL        : 'true' | 'false' ;
 IDENTIFIER  : [a-zA-Z_][a-zA-Z0-9_]* ;
 NUMBER      : [0-9]+ ('.' [0-9]+)? ;
 STRING      : '"' (~["\r\n])* '"' ;
-BOOL        : 'true' | 'false' ;
 WS          : [ \t\r\n]+ -> skip ;
 COMMENT     : '//' ~[\r\n]* -> skip ;
 BLOCK_COMMENT : '/*' .*? '*/' -> skip ;

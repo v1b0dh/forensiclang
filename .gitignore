@@ -29,8 +29,9 @@ runtime/build/
 *.lib
 *.dll
 *.exe
-*.ll           # LLVM IR intermediates
-*.bc           # LLVM bitcode
+# LLVM IR intermediates
+*.ll
+*.bc
 
 # CMake
 CMakeFiles/

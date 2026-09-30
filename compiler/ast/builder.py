@@ -37,10 +37,13 @@ def _strip_quotes(text: str) -> str:
 
 
 def _get_text(rule_ctx) -> str:
-    """Safely extract text from a rule context (id, analyzeTarget, etc.)."""
+    """Safely extract text from a rule context or token."""
     if rule_ctx is None:
         return ""
-    return rule_ctx.getText()
+    if hasattr(rule_ctx, "getText"):
+        return rule_ctx.getText()
+    return getattr(rule_ctx, "text", str(rule_ctx))
+
 
 
 class ASTBuilder(JockyVisitor):
@@ -115,8 +118,9 @@ class ASTBuilder(JockyVisitor):
         target_path = _strip_quotes(_get_text(ctx.targetPath))
         method = ctx.method.getText()
         passes = int(ctx.passes.text) if ctx.passes else None
-        clean_metadata = ctx.cleanMetadata.text.lower() == "true" if ctx.cleanMetadata else False
-        clean_slack = ctx.cleanSlack.text.lower() == "true" if ctx.cleanSlack else False
+        clean_metadata = _get_text(ctx.cleanMetadata).lower() == "true" if ctx.cleanMetadata else False
+        clean_slack = _get_text(ctx.cleanSlack).lower() == "true" if ctx.cleanSlack else False
+
         audit_file = _strip_quotes(_get_text(ctx.auditFile)) if ctx.auditFile else None
         cert_file = _strip_quotes(_get_text(ctx.certFile)) if ctx.certFile else None
         return EraseStatement(
