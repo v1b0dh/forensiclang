@@ -18,6 +18,16 @@ pub const MEM_PRIVATE: u32 = 0x20000;
 pub const MEM_MAPPED: u32 = 0x40000;
 pub const MEM_IMAGE: u32 = 0x1000000;
 
+pub const PAGE_NOACCESS: u32 = 0x01;
+pub const PAGE_READONLY: u32 = 0x02;
+pub const PAGE_READWRITE: u32 = 0x04;
+pub const PAGE_WRITECOPY: u32 = 0x08;
+pub const PAGE_EXECUTE: u32 = 0x10;
+pub const PAGE_EXECUTE_READ: u32 = 0x20;
+pub const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+pub const PAGE_EXECUTE_WRITECOPY: u32 = 0x80;
+pub const PAGE_GUARD: u32 = 0x100;
+
 pub const MAX_PATH: usize = 260;
 
 #[repr(C)]
@@ -82,6 +92,23 @@ impl Default for MEMORY_BASIC_INFORMATION {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+#[allow(non_snake_case)]
+pub struct WIN32_FIND_STREAM_DATA {
+    pub StreamSize: i64,
+    pub cStreamName: [u16; MAX_PATH + 36],
+}
+
+impl Default for WIN32_FIND_STREAM_DATA {
+    fn default() -> Self {
+        Self {
+            StreamSize: 0,
+            cStreamName: [0; MAX_PATH + 36],
+        }
+    }
+}
+
 #[link(name = "kernel32")]
 unsafe extern "system" {
     pub fn CloseHandle(hObject: HANDLE) -> i32;
@@ -112,4 +139,18 @@ unsafe extern "system" {
         nSize: usize,
         lpNumberOfBytesRead: *mut usize,
     ) -> i32;
+
+    pub fn FindFirstStreamW(
+        lpFileName: *const u16,
+        InfoLevel: u32,
+        lpFindStreamData: *mut c_void,
+        dwFlags: u32,
+    ) -> HANDLE;
+
+    pub fn FindNextStreamW(
+        hFindStream: HANDLE,
+        lpFindStreamData: *mut c_void,
+    ) -> i32;
+
+    pub fn FindClose(hFindFile: HANDLE) -> i32;
 }

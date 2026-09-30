@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Server, Terminal, Archive, GitBranch, ShieldAlert,
-  Activity, Disc3, Flame, type LucideIcon
+  Activity, Disc3, Flame, Blocks, Crosshair, type LucideIcon
 } from 'lucide-react'
 import { AgentGrid }          from './components/AgentGrid'
 import { ScriptEditor }       from './components/ScriptEditor'
@@ -10,18 +10,22 @@ import { TimelineView }       from './components/TimelineView'
 import { IOCCorrelation }     from './components/IOCCorrelation'
 import { CarvingWorkbench }   from './components/CarvingWorkbench'
 import { SanitizationCenter } from './components/SanitizationCenter'
+import { BlockchainLedger }   from './components/BlockchainLedger'
+import { ThreatHunter }       from './components/ThreatHunter'
 import { useAgentStore }      from './store/agentStore'
 
-type View = 'agents' | 'editor' | 'artifacts' | 'timeline' | 'ioc' | 'carver' | 'sanitizer'
+type View = 'agents' | 'editor' | 'artifacts' | 'timeline' | 'ioc' | 'carver' | 'sanitizer' | 'blockchain' | 'hunter'
 
 const NAV_ITEMS: { id: View; label: string; icon: LucideIcon }[] = [
-  { id: 'agents',    label: 'Agents',      icon: Server      },
-  { id: 'editor',    label: 'Editor',      icon: Terminal    },
-  { id: 'carver',    label: 'File Carver', icon: Disc3       },
-  { id: 'sanitizer', label: 'Sanitizer',   icon: Flame       },
-  { id: 'artifacts', label: 'Artifacts',   icon: Archive     },
-  { id: 'timeline',  label: 'Timeline',    icon: GitBranch   },
-  { id: 'ioc',       label: 'IOC Match',   icon: ShieldAlert },
+  { id: 'agents',     label: 'Agents',        icon: Server      },
+  { id: 'editor',     label: 'Editor',        icon: Terminal    },
+  { id: 'carver',     label: 'File Carver',   icon: Disc3       },
+  { id: 'sanitizer',  label: 'Sanitizer',     icon: Flame       },
+  { id: 'hunter',     label: 'Threat Hunter', icon: Crosshair   },
+  { id: 'blockchain', label: 'Ledger',        icon: Blocks      },
+  { id: 'artifacts',  label: 'Artifacts',     icon: Archive     },
+  { id: 'timeline',   label: 'Timeline',      icon: GitBranch   },
+  { id: 'ioc',        label: 'IOC Match',     icon: ShieldAlert },
 ]
 
 export function App() {
@@ -63,13 +67,15 @@ export function App() {
 
       {/* ── Main ─────────────────────────────────────────────── */}
       <main id="main-content">
-        {view === 'agents'    && <AgentGrid />}
-        {view === 'editor'    && <ScriptEditor />}
-        {view === 'carver'    && <CarvingWorkbench />}
-        {view === 'sanitizer' && <SanitizationCenter />}
-        {view === 'artifacts' && <ArtifactViewer />}
-        {view === 'timeline'  && <TimelineView />}
-        {view === 'ioc'       && <IOCCorrelation />}
+        {view === 'agents'     && <AgentGrid />}
+        {view === 'editor'     && <ScriptEditor />}
+        {view === 'carver'     && <CarvingWorkbench />}
+        {view === 'sanitizer'  && <SanitizationCenter />}
+        {view === 'hunter'     && <ThreatHunter />}
+        {view === 'blockchain' && <BlockchainLedger />}
+        {view === 'artifacts'  && <ArtifactViewer />}
+        {view === 'timeline'   && <TimelineView />}
+        {view === 'ioc'        && <IOCCorrelation />}
       </main>
     </div>
   )

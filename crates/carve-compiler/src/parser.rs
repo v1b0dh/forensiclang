@@ -141,6 +141,7 @@ fn build_carve(pair: Pair<Rule>, line: usize) -> Result<CarveStatement, String> 
     let mut mode = CarveMode::Deep;
     let mut confidence_threshold = None;
     let mut export_name = None;
+    let mut scan_threats = true;
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
@@ -168,6 +169,9 @@ fn build_carve(pair: Pair<Rule>, line: usize) -> Result<CarveStatement, String> 
             Rule::number => {
                 confidence_threshold = inner.as_str().parse().ok();
             }
+            Rule::boolean => {
+                scan_threats = inner.as_str() == "true";
+            }
             Rule::export_clause => {
                 export_name = inner
                     .into_inner()
@@ -184,6 +188,7 @@ fn build_carve(pair: Pair<Rule>, line: usize) -> Result<CarveStatement, String> 
         mode,
         confidence_threshold,
         export_name,
+        scan_threats,
         line,
     })
 }

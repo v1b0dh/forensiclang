@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Search, HardDrive, Download, Eye, CheckCircle2,
-  AlertCircle, RefreshCw, Cpu, Layers, Disc3
+  AlertCircle, RefreshCw, Cpu, Layers, Disc3, ShieldAlert, ShieldCheck
 } from 'lucide-react'
 
 interface CarvedFile {
@@ -12,6 +12,8 @@ interface CarvedFile {
   confidence_score: number
   valid: boolean
   sha256: string
+  threat_level?: string
+  threat_tags?: string[]
 }
 
 interface CarveJobStatus {
@@ -376,6 +378,7 @@ export function CarvingWorkbench() {
               <th style={{ padding: '10px 16px' }}>Offset (Hex)</th>
               <th style={{ padding: '10px 16px' }}>Recovered Size</th>
               <th style={{ padding: '10px 16px' }}>Confidence Score</th>
+              <th style={{ padding: '10px 16px' }}>Threat Scan</th>
               <th style={{ padding: '10px 16px' }}>Integrity</th>
               <th style={{ padding: '10px 16px', textAlign: 'right' }}>Actions</th>
             </tr>
@@ -383,7 +386,7 @@ export function CarvingWorkbench() {
           <tbody>
             {!jobStatus || jobStatus.recovered_files.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <td colSpan={8} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
                   No carved artifacts detected yet. Start a carving sweep to inspect media clusters.
                 </td>
               </tr>
@@ -415,6 +418,21 @@ export function CarvingWorkbench() {
                     }}>
                       {(file.confidence_score * 100).toFixed(0)}%
                     </span>
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    {file.threat_level === 'Critical' ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px', background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', fontSize: '11px', fontWeight: 700 }}>
+                        <ShieldAlert size={12} /> CRITICAL {file.threat_tags?.[0] ? `(${file.threat_tags[0]})` : ''}
+                      </span>
+                    ) : file.threat_level === 'Suspicious' ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b', fontSize: '11px', fontWeight: 700 }}>
+                        <AlertCircle size={12} /> SUSPICIOUS
+                      </span>
+                    ) : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontSize: '11px', fontWeight: 600 }}>
+                        <ShieldCheck size={12} /> Clean
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: '12px 16px' }}>
                     {file.valid ? (

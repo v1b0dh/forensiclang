@@ -130,6 +130,144 @@ pub fn hmac_sha256(key: &[u8], message: &[u8]) -> String {
     sha256_hex(&outer_input)
 }
 
+use serde::{Deserialize, Serialize};
+
+/// Direction of sibling in a binary Merkle tree
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MerkleDirection {
+    Left,
+    Right,
+}
+
+/// Single step in a Merkle inclusion proof
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MerkleProofStep {
+    pub sibling_hash: String,
+    pub direction: MerkleDirection,
+}
+
+/// Merkle inclusion proof for a leaf
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MerkleProof {
+    pub leaf_hash: String,
+    pub steps: Vec<MerkleProofStep>,
+    pub root_hash: String,
+}
+
+impl MerkleProof {
+    /// Verify that this proof resolves to the stated root hash
+    pub fn verify(&self) -> bool {
+        let mut current = self.leaf_hash.clone();
+        for step in &self.steps {
+            let combined = match step.direction {
+                MerkleDirection::Left => format!("{}{}", step.sibling_hash, current),
+                MerkleDirection::Right => format!("{}{}", current, step.sibling_hash),
+            };
+            current = sha256_hex(combined.as_bytes());
+        }
+        current.eq_ignore_ascii_case(&self.root_hash)
+    }
+}
+
+/// Binary Merkle Tree for bundling multiple evidence items and certificates
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MerkleTree {
+    pub leaves: Vec<String>,
+    pub root: String,
+}
+
+impl MerkleTree {
+    /// Construct a new Merkle Tree from a list of leaf hashes (hex strings)
+    pub fn new(leaves: Vec<String>) -> Self {
+        if leaves.is_empty() {
+            return Self {
+                leaves,
+                root: sha256_hex(b""),
+            };
+        }
+        if leaves.len() == 1 {
+            return Self {
+                root: leaves[0].clone(),
+                leaves,
+            };
+        }
+
+        let mut current_level = leaves.clone();
+        while current_level.len() > 1 {
+            let mut next_level = Vec::with_capacity((current_level.len() + 1) / 2);
+            for chunk in current_level.chunks(2) {
+                if chunk.len() == 2 {
+                    let combined = format!("{}{}", chunk[0], chunk[1]);
+                    next_level.push(sha256_hex(combined.as_bytes()));
+                } else {
+                    let combined = format!("{}{}", chunk[0], chunk[0]);
+                    next_level.push(sha256_hex(combined.as_bytes()));
+                }
+            }
+            current_level = next_level;
+        }
+
+        Self {
+            root: current_level.into_iter().next().unwrap(),
+            leaves,
+        }
+    }
+
+    /// Generate an inclusion proof for a leaf by index
+    pub fn proof(&self, leaf_index: usize) -> Option<MerkleProof> {
+        if leaf_index >= self.leaves.len() {
+            return None;
+        }
+
+        let mut steps = Vec::new();
+        let mut idx = leaf_index;
+        let mut current_level = self.leaves.clone();
+
+        while current_level.len() > 1 {
+            let sibling_idx = if idx % 2 == 0 {
+                if idx + 1 < current_level.len() {
+                    idx + 1
+                } else {
+                    idx
+                }
+            } else {
+                idx - 1
+            };
+
+            let direction = if idx % 2 == 0 {
+                MerkleDirection::Right
+            } else {
+                MerkleDirection::Left
+            };
+
+            steps.push(MerkleProofStep {
+                sibling_hash: current_level[sibling_idx].clone(),
+                direction,
+            });
+
+            let mut next_level = Vec::with_capacity((current_level.len() + 1) / 2);
+            for chunk in current_level.chunks(2) {
+                if chunk.len() == 2 {
+                    let combined = format!("{}{}", chunk[0], chunk[1]);
+                    next_level.push(sha256_hex(combined.as_bytes()));
+                } else {
+                    let combined = format!("{}{}", chunk[0], chunk[0]);
+                    next_level.push(sha256_hex(combined.as_bytes()));
+                }
+            }
+            current_level = next_level;
+            idx /= 2;
+        }
+
+        Some(MerkleProof {
+            leaf_hash: self.leaves[leaf_index].clone(),
+            steps,
+            root_hash: self.root.clone(),
+        })
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,4 +288,43 @@ mod tests {
         let hmac = hmac_sha256(key, msg);
         assert_eq!(hmac.len(), 64);
     }
+
+    #[test]
+    fn test_merkle_tree_and_proof_verification() {
+        let leaf1 = sha256_hex(b"evidence_mft_dump.raw");
+        let leaf2 = sha256_hex(b"destruction_certificate_101.pdf");
+        let leaf3 = sha256_hex(b"carved_sqlite_database.db");
+        let leaf4 = sha256_hex(b"network_traffic_dump.pcap");
+        let leaves = vec![leaf1, leaf2, leaf3, leaf4];
+
+        let tree = MerkleTree::new(leaves.clone());
+        assert_eq!(tree.root.len(), 64);
+
+        // Verify proofs for all leaves
+        for i in 0..leaves.len() {
+            let proof = tree.proof(i).expect("Proof must be generated");
+            assert!(proof.verify(), "Proof for leaf {} must verify against root", i);
+        }
+
+        // Tamper test: if leaf hash is altered, verification fails
+        let mut tampered_proof = tree.proof(0).unwrap();
+        tampered_proof.leaf_hash = sha256_hex(b"tampered_attacker_payload");
+        assert!(!tampered_proof.verify(), "Tampered proof must fail verification");
+    }
+
+    #[test]
+    fn test_merkle_tree_odd_leaves() {
+        let leaves = vec![
+            sha256_hex(b"item_1"),
+            sha256_hex(b"item_2"),
+            sha256_hex(b"item_3"),
+        ];
+        let tree = MerkleTree::new(leaves.clone());
+        assert_eq!(tree.root.len(), 64);
+        for i in 0..leaves.len() {
+            let proof = tree.proof(i).unwrap();
+            assert!(proof.verify());
+        }
+    }
 }
+

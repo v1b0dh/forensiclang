@@ -53,6 +53,7 @@ class CarveStatement(ASTNode):
     mode: str = "deep"                  # quick | deep | fragmented
     confidence_threshold: Optional[float] = None
     export_name: Optional[str] = None
+    scan_threats: bool = True
 
 
 @dataclass

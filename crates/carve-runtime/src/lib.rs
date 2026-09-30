@@ -8,7 +8,9 @@
 //! - Artifact format (.jkya)
 //! - Timeline builder
 
+pub mod antiforensics;
 pub mod artifact;
+pub mod blockchain;
 pub mod carving;
 pub mod crypto;
 pub mod memory;

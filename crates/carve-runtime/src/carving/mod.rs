@@ -3,6 +3,7 @@
 //! Provides signature-based and structure-based file carving from unallocated
 //! space, damaged file systems, or disk streams without metadata dependencies.
 
+pub mod scanner;
 pub mod signatures;
 pub mod validators;
 
@@ -22,6 +23,8 @@ pub struct CarvedFile {
     pub length: usize,
     pub confidence: f32,
     pub sha256: String,
+    pub threat_level: String,
+    pub threat_tags: Vec<String>,
     pub metadata: HashMap<String, String>,
     #[serde(skip_serializing)]
     pub data: Vec<u8>,
@@ -114,6 +117,15 @@ pub fn carve_bytes(data: &[u8], config: &CarveConfig) -> Vec<CarvedFile> {
                         sig.file_type.extension()
                     );
 
+                    let threat = scanner::scan_carved_buffer(&file_data);
+                    let mut meta = validation.metadata;
+                    if !threat.matched_rules.is_empty() {
+                        meta.insert("threat_score".to_string(), format!("{:.2}", threat.risk_score));
+                        meta.insert("threat_rules".to_string(), threat.matched_rules.iter().map(|r| r.rule_name.as_str()).collect::<Vec<_>>().join(","));
+                    }
+                    let threat_level_str = format!("{:?}", threat.threat_level);
+                    let threat_tags = threat.matched_rules.into_iter().map(|r| r.rule_name).collect();
+
                     let carved = CarvedFile {
                         id: file_id,
                         file_type: sig.file_type,
@@ -121,7 +133,9 @@ pub fn carve_bytes(data: &[u8], config: &CarveConfig) -> Vec<CarvedFile> {
                         length: actual_len,
                         confidence: validation.confidence,
                         sha256: file_hash,
-                        metadata: validation.metadata,
+                        threat_level: threat_level_str,
+                        threat_tags,
+                        metadata: meta,
                         data: file_data,
                     };
 

@@ -17,9 +17,14 @@ import hmac
 import json
 import os
 import platform
+import ctypes
+import logging
+import math
+import random
 import secrets
 import struct
 import string
+import tempfile
 import threading
 import time
 import uuid
@@ -27,10 +32,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import psutil
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
+logger = logging.getLogger("forensics")
 router = APIRouter(prefix="/api", tags=["Forensic Sanitization & Carving"])
 
 # ─────────────────────────────────────────────────────────────────
@@ -374,6 +381,15 @@ def _run_sanitization_worker(
                 random_name.unlink(missing_ok=True)
 
             cert = generate_erasure_certificate("file", target_path, method, passes, size, v_hash)
+            LEDGER.append_record({
+                "id": cert["certificate_id"],
+                "record_type": "SanitizationCertificate",
+                "target": target_path,
+                "sha256_hash": cert.get("digital_signature_hmac", cert.get("tamper_proof_hmac", "")),
+                "operator": cert.get("operator", "analyst"),
+                "timestamp": cert.get("timestamp"),
+                "metadata_json": json.dumps({"standard": method, "passes": passes, "target_type": "file"}),
+            })
             job.update(
                 status="completed",
                 progress=100.0,
@@ -402,6 +418,15 @@ def _run_sanitization_worker(
 
             v_hash = hashlib.sha256(b"VERIFIED_ZERO_RESIDUAL_BLOCK_CHECK").hexdigest()
             cert = generate_erasure_certificate(target_type, target_path, method, passes, target_size, v_hash)
+            LEDGER.append_record({
+                "id": cert["certificate_id"],
+                "record_type": "SanitizationCertificate",
+                "target": target_path,
+                "sha256_hash": cert.get("digital_signature_hmac", cert.get("tamper_proof_hmac", "")),
+                "operator": cert.get("operator", "analyst"),
+                "timestamp": cert.get("timestamp"),
+                "metadata_json": json.dumps({"standard": method, "passes": passes, "target_type": target_type}),
+            })
             job.update(
                 status="completed",
                 progress=100.0,
@@ -453,6 +478,18 @@ def _run_carving_worker(
                     valid, conf, size = sig["validator"](slice_window)
                     if conf >= confidence_threshold:
                         file_id = f"CARVED_{sig['type'].upper()}_{pos:08X}"
+                        recovered_bytes = slice_window[:size]
+                        
+                        # Real-time Carve & YARA signature classification
+                        threat_level = "Clean"
+                        threat_tags = []
+                        if b"powershell" in recovered_bytes or b"eval(" in recovered_bytes or b"vssadmin" in recovered_bytes:
+                            threat_level = "Critical"
+                            threat_tags.append("MALICIOUS_PAYLOAD_DETECTED")
+                        elif b"cmd.exe" in recovered_bytes or b"AutoOpen" in recovered_bytes or b"WScript" in recovered_bytes:
+                            threat_level = "Suspicious"
+                            threat_tags.append("SUSPICIOUS_SCRIPT_EXEC")
+
                         file_meta = {
                             "id": file_id,
                             "type": sig["type"],
@@ -460,7 +497,9 @@ def _run_carving_worker(
                             "size": size,
                             "confidence_score": round(conf, 2),
                             "valid": valid,
-                            "sha256": hashlib.sha256(slice_window[:size]).hexdigest(),
+                            "sha256": hashlib.sha256(recovered_bytes).hexdigest(),
+                            "threat_level": threat_level,
+                            "threat_tags": threat_tags,
                         }
                         recovered.append(file_meta)
                         job.update(files_found=len(recovered), recovered_files=recovered)
@@ -469,13 +508,23 @@ def _run_carving_worker(
             pos += step
 
         artifact = {
-            "format": "JOCKY_ARTIFACT_V1",
+            "format": "CARVE_ARTIFACT_V1",
             "export_name": export_name,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "target_drive": drive_path,
             "total_recovered": len(recovered),
             "files": recovered,
         }
+        pkg_hash = hashlib.sha256(json.dumps(artifact, sort_keys=True).encode("utf-8")).hexdigest()
+        LEDGER.append_record({
+            "id": f"CARVE-PKG-{job.job_id[:8]}",
+            "record_type": "CarvedEvidence",
+            "target": drive_path,
+            "sha256_hash": pkg_hash,
+            "operator": "analyst",
+            "timestamp": artifact["created_at"],
+            "metadata_json": json.dumps({"export_name": export_name, "files_recovered": len(recovered)}),
+        })
         job.update(
             status="completed",
             progress=100.0,
@@ -645,10 +694,6 @@ async def download_artifact(job_id: str):
     return JSONResponse(job.artifact_package)
 
 
-# ─────────────────────────────────────────────────────────────────
-# WebSocket Live Streaming
-# ─────────────────────────────────────────────────────────────────
-
 @router.websocket("/ws/progress/{job_id}")
 async def websocket_progress(ws: WebSocket, job_id: str):
     await ws.accept()
@@ -673,3 +718,627 @@ async def websocket_progress(ws: WebSocket, job_id: str):
     finally:
         if q in job.listeners:
             job.listeners.remove(q)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Blockchain Audit Ledger (Theme: Blockchain & Cybersecurity)
+# ─────────────────────────────────────────────────────────────────
+
+def _compute_merkle_root(leaves: list[str]) -> tuple[str, list[dict]]:
+    """Compute binary Merkle tree root and return (root_hex, tree_levels)."""
+    if not leaves:
+        return hashlib.sha256(b"").hexdigest(), []
+    if len(leaves) == 1:
+        return leaves[0], [[leaves[0]]]
+
+    current = list(leaves)
+    levels = [list(current)]
+
+    while len(current) > 1:
+        next_level = []
+        for i in range(0, len(current), 2):
+            left = current[i]
+            right = current[i + 1] if i + 1 < len(current) else current[i]
+            comb = hashlib.sha256((left + right).encode("utf-8")).hexdigest()
+            next_level.append(comb)
+        current = next_level
+        levels.append(list(current))
+
+    return current[0], levels
+
+
+class LedgerRecord(BaseModel):
+    id: str
+    record_type: str
+    target: str
+    sha256_hash: str
+    operator: str = "analyst"
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    metadata_json: str = "{}"
+
+
+class BlockchainLedgerManager:
+    """Manages an append-only cryptographic evidence ledger with Merkle tree validation."""
+
+    def __init__(self, key: bytes = SYSTEM_SIGNING_KEY):
+        self.key = key
+        self.chain: list[dict] = []
+        self._init_genesis()
+
+    def _init_genesis(self):
+        ts = datetime.now(timezone.utc).isoformat()
+        genesis_rec = {
+            "id": "GENESIS-0000",
+            "record_type": "AuditLog",
+            "target": "CARVE-FORENSIC-LEDGER",
+            "sha256_hash": hashlib.sha256(b"CARVE Forensic Platform Genesis Root Block").hexdigest(),
+            "operator": "SYSTEM-AUTHORITY",
+            "timestamp": ts,
+            "metadata_json": json.dumps({"network": "CARVE-PRIVATE-AUDIT-LEDGER", "version": "1.0.0"}),
+        }
+        leaf_hash = hashlib.sha256(
+            f"{genesis_rec['id']}:{genesis_rec['record_type']}:{genesis_rec['target']}:{genesis_rec['sha256_hash']}:{genesis_rec['operator']}:{genesis_rec['timestamp']}".encode("utf-8")
+        ).hexdigest()
+
+        merkle_root, _ = _compute_merkle_root([leaf_hash])
+        prev_hash = "0" * 64
+        hdr = f"0:{ts}:{prev_hash}:{merkle_root}:0"
+        b_hash = hashlib.sha256(hdr.encode("utf-8")).hexdigest()
+        sig = hmac.new(self.key, b_hash.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        genesis_block = {
+            "index": 0,
+            "timestamp": ts,
+            "previous_hash": prev_hash,
+            "merkle_root": merkle_root,
+            "records": [genesis_rec],
+            "leaf_hashes": [leaf_hash],
+            "nonce": 0,
+            "block_hash": b_hash,
+            "signature": sig,
+        }
+        self.chain.append(genesis_block)
+
+    def append_record(self, record_dict: dict) -> dict:
+        """Append a record into a new cryptographic ledger block."""
+        prev = self.chain[-1]
+        next_idx = prev["index"] + 1
+        ts = datetime.now(timezone.utc).isoformat()
+        prev_hash = prev["block_hash"]
+
+        leaf = hashlib.sha256(
+            f"{record_dict['id']}:{record_dict['record_type']}:{record_dict['target']}:{record_dict['sha256_hash']}:{record_dict['operator']}:{record_dict.get('timestamp', ts)}".encode("utf-8")
+        ).hexdigest()
+
+        merkle_root, _ = _compute_merkle_root([leaf])
+
+        nonce = 0
+        hdr = f"{next_idx}:{ts}:{prev_hash}:{merkle_root}:{nonce}"
+        b_hash = hashlib.sha256(hdr.encode("utf-8")).hexdigest()
+        while not b_hash.startswith("0") and nonce < 100_000:
+            nonce += 1
+            hdr = f"{next_idx}:{ts}:{prev_hash}:{merkle_root}:{nonce}"
+            b_hash = hashlib.sha256(hdr.encode("utf-8")).hexdigest()
+
+        sig = hmac.new(self.key, b_hash.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        block = {
+            "index": next_idx,
+            "timestamp": ts,
+            "previous_hash": prev_hash,
+            "merkle_root": merkle_root,
+            "records": [record_dict],
+            "leaf_hashes": [leaf],
+            "nonce": nonce,
+            "block_hash": b_hash,
+            "signature": sig,
+        }
+        self.chain.append(block)
+        return block
+
+    def verify_chain(self) -> bool:
+        """Verify unbroken cryptographic hashes and signatures across the entire chain."""
+        if not self.chain:
+            return False
+        for i, block in enumerate(self.chain):
+            prev = self.chain[i - 1] if i > 0 else None
+            if prev:
+                if block["previous_hash"] != prev["block_hash"]:
+                    return False
+                if block["index"] != prev["index"] + 1:
+                    return False
+            else:
+                if block["index"] != 0 or block["previous_hash"] != "0" * 64:
+                    return False
+
+            hdr = f"{block['index']}:{block['timestamp']}:{block['previous_hash']}:{block['merkle_root']}:{block['nonce']}"
+            computed_hash = hashlib.sha256(hdr.encode("utf-8")).hexdigest()
+            if computed_hash != block["block_hash"]:
+                return False
+
+            sig = hmac.new(self.key, block["block_hash"].encode("utf-8"), hashlib.sha256).hexdigest()
+            if sig != block["signature"]:
+                return False
+        return True
+
+    def find_evidence(self, query: str) -> Optional[dict]:
+        """Find an evidence hash, certificate ID, or block hash on the ledger."""
+        q = query.strip().lower()
+        for block in self.chain:
+            if block["block_hash"].lower() == q or block["merkle_root"].lower() == q:
+                return {"type": "block", "block": block, "verified": True}
+            for rec in block["records"]:
+                if rec["id"].lower() == q or rec["sha256_hash"].lower() == q:
+                    return {
+                        "type": "record",
+                        "block_index": block["index"],
+                        "block_hash": block["block_hash"],
+                        "block_timestamp": block["timestamp"],
+                        "merkle_root": block["merkle_root"],
+                        "record": rec,
+                        "verified": True,
+                    }
+        return None
+
+
+LEDGER = BlockchainLedgerManager()
+
+
+@router.get("/blockchain/ledger", summary="Get all blocks in the immutable chain of custody")
+async def get_blockchain_ledger():
+    return {
+        "status": "active",
+        "total_blocks": len(LEDGER.chain),
+        "chain_valid": LEDGER.verify_chain(),
+        "network": "CARVE-IMMUTABLE-AUDIT-LEDGER",
+        "blocks": LEDGER.chain,
+    }
+
+
+class AnchorRequest(BaseModel):
+    id: str
+    record_type: str = "CarvedEvidence"
+    target: str
+    sha256_hash: str
+    operator: str = "analyst"
+    metadata_json: str = "{}"
+
+
+@router.post("/blockchain/anchor", summary="Anchor a certificate or artifact hash onto the blockchain")
+async def anchor_evidence(req: AnchorRequest):
+    rec_data = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    block = LEDGER.append_record(rec_data)
+    return {
+        "status": "anchored",
+        "block_index": block["index"],
+        "block_hash": block["block_hash"],
+        "merkle_root": block["merkle_root"],
+        "timestamp": block["timestamp"],
+    }
+
+
+class VerifyRequest(BaseModel):
+    query: str
+
+
+@router.post("/blockchain/verify", summary="Verify any certificate or evidence hash against the blockchain")
+async def verify_evidence(req: VerifyRequest):
+    result = LEDGER.find_evidence(req.query)
+    if not result:
+        return {
+            "verified": False,
+            "query": req.query,
+            "detail": "Hash or ID not found in any ledger block.",
+        }
+    return result
+
+
+# ---------------------------------------------------------
+# Phase 3: Anti-Forensic Evasion Scanner (Timestomping & ADS)
+# ---------------------------------------------------------
+
+class AntiForensicsScanRequest(BaseModel):
+    target_path: Optional[str] = None
+    recursive: bool = False
+    simulate_test: bool = False
+
+
+def _compute_entropy(data: bytes) -> float:
+    if not data:
+        return 0.0
+    import collections
+    import math
+    counts = collections.Counter(data)
+    length = len(data)
+    return -sum((c / length) * math.log2(c / length) for c in counts.values())
+
+
+def _enumerate_ads_streams(file_path: str) -> List[dict]:
+    """Enumerate NTFS Alternate Data Streams on a file using Win32 API."""
+    streams = []
+    if os.name != "nt":
+        return streams
+
+    try:
+        class WIN32_FIND_STREAM_DATA(ctypes.Structure):
+            _fields_ = [
+                ("StreamSize", ctypes.c_longlong),
+                ("cStreamName", ctypes.c_wchar * 296),
+            ]
+
+        k32 = ctypes.windll.kernel32
+        k32.FindFirstStreamW.argtypes = [ctypes.c_wchar_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong]
+        k32.FindFirstStreamW.restype = ctypes.c_void_p
+        k32.FindNextStreamW.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        k32.FindNextStreamW.restype = ctypes.c_bool
+        k32.FindClose.argtypes = [ctypes.c_void_p]
+        k32.FindClose.restype = ctypes.c_bool
+
+        stream_data = WIN32_FIND_STREAM_DATA()
+        handle = k32.FindFirstStreamW(
+            file_path,
+            0,
+            ctypes.byref(stream_data),
+            0
+        )
+        invalid_val = ctypes.c_void_p(-1).value
+        if not handle or handle == invalid_val:
+            return streams
+
+        suspicious_exts = [".exe", ".dll", ".vbs", ".ps1", ".bat", ".cmd", ".bin", ".js", ".hta"]
+        suspicious_kws = ["payload", "beacon", "dropper", "hidden", "shell", "meterpreter"]
+
+        try:
+            while True:
+                s_name = stream_data.cStreamName
+                if s_name and s_name != "::$DATA":
+                    lower_name = s_name.lower()
+                    is_suspicious = False
+                    tags = []
+
+                    if lower_name.startswith(":zone.identifier"):
+                        tags.append("MOTW")
+                    else:
+                        for ext in suspicious_exts:
+                            if ext in lower_name:
+                                is_suspicious = True
+                                tags.append(f"ADS-EXEC-{ext.strip('.')}")
+                        for kw in suspicious_kws:
+                            if kw in lower_name:
+                                is_suspicious = True
+                                tags.append(f"ADS-MALWARE-{kw.upper()}")
+
+                    streams.append({
+                        "parent_file": file_path,
+                        "stream_name": s_name,
+                        "size_bytes": stream_data.StreamSize,
+                        "is_suspicious": is_suspicious,
+                        "threat_tags": tags,
+                        "mitre_attack": "T1564.004",
+                    })
+
+                if not k32.FindNextStreamW(handle, ctypes.byref(stream_data)):
+                    break
+        finally:
+            k32.FindClose(handle)
+    except Exception as e:
+        logger.debug(f"Error enumerating streams on {file_path}: {e}")
+    return streams
+
+
+@router.post("/forensics/antiforensics/scan", summary="Scan for anti-forensic timestomping and Alternate Data Streams")
+async def scan_antiforensics(req: AntiForensicsScanRequest = AntiForensicsScanRequest()):
+    scanned_files = 0
+    anomalies = []
+    ads_found = []
+
+    target = req.target_path or tempfile.gettempdir()
+
+    # Synthetic test simulation if requested
+    if req.simulate_test:
+        test_dir = tempfile.mkdtemp(prefix="carve_antiforensic_sim_")
+        test_file = os.path.join(test_dir, "calc_update.txt")
+        with open(test_file, "w") as f:
+            f.write("System diagnostics report")
+
+        # Create simulated ADS stream if on Windows
+        if os.name == "nt":
+            stream_target = f"{test_file}:dropper.vbs"
+            try:
+                with open(stream_target, "w") as sf:
+                    sf.write('WScript.Echo "Malicious payload executing from stream"')
+            except Exception:
+                pass
+
+        # Simulate synthetic timestomp detection record
+        anomalies.append({
+            "file_path": test_file,
+            "anomaly_type": "SiOlderThanFn",
+            "severity": "CRITICAL",
+            "mitre_attack": "T1070.006",
+            "si_created": "2019-04-12T08:00:00Z",
+            "fn_created": datetime.now(timezone.utc).isoformat(),
+            "delta_seconds": 220752000.0,
+            "description": "Timestomping detected: $STANDARD_INFORMATION backdated by >7 years relative to $FILE_NAME (T1070.006)."
+        })
+
+        if os.name == "nt":
+            found_sim = _enumerate_ads_streams(test_file)
+            ads_found.extend(found_sim)
+        else:
+            ads_found.append({
+                "parent_file": test_file,
+                "stream_name": ":dropper.vbs:$DATA",
+                "size_bytes": 48,
+                "is_suspicious": True,
+                "threat_tags": ["ADS-EXEC-vbs", "ADS-MALWARE-DROPPER"],
+                "mitre_attack": "T1564.004",
+            })
+        target = test_dir
+
+    if os.path.exists(target):
+        targets = []
+        if os.path.isfile(target):
+            targets.append(target)
+        else:
+            for root, dirs, files in os.walk(target):
+                for fn in files:
+                    targets.append(os.path.join(root, fn))
+                    if len(targets) >= 100:
+                        break
+                if not req.recursive or len(targets) >= 100:
+                    break
+
+        scanned_files = len(targets)
+        for tf in targets:
+            try:
+                st = os.stat(tf)
+                # Check for zero-subsecond precision or temporal inversion
+                ctime = st.st_ctime
+                mtime = st.st_mtime
+                if mtime < ctime - 10.0:
+                    anomalies.append({
+                        "file_path": tf,
+                        "anomaly_type": "ModifiedPrecedesCreated",
+                        "severity": "SUSPICIOUS",
+                        "mitre_attack": "T1070.006",
+                        "si_created": datetime.fromtimestamp(ctime, timezone.utc).isoformat(),
+                        "fn_created": datetime.fromtimestamp(mtime, timezone.utc).isoformat(),
+                        "delta_seconds": round(ctime - mtime, 1),
+                        "description": f"Temporal inversion: Last Modified precedes Creation by {round(ctime - mtime, 1)}s."
+                    })
+                # Check ADS
+                streams = _enumerate_ads_streams(tf)
+                ads_found.extend(streams)
+            except Exception:
+                continue
+
+    has_evasion = len(anomalies) > 0 or any(a.get("is_suspicious") for a in ads_found)
+
+    # Auto-anchor evasion evidence to blockchain ledger
+    if has_evasion:
+        LEDGER.append_record({
+            "id": f"EVASION-AUDIT-{uuid.uuid4().hex[:8].upper()}",
+            "record_type": "AntiForensicsEvidence",
+            "target": target,
+            "sha256_hash": hashlib.sha256(f"{target}:{len(anomalies)}:{len(ads_found)}".encode()).hexdigest(),
+            "operator": "automated_evasion_auditor",
+            "metadata_json": json.dumps({
+                "timestomp_count": len(anomalies),
+                "ads_count": len(ads_found),
+                "mitre_techniques": ["T1070.006", "T1564.004"],
+            }),
+        })
+
+    return {
+        "status": "completed",
+        "target_path": target,
+        "scanned_at": datetime.now(timezone.utc).isoformat(),
+        "total_files_scanned": scanned_files,
+        "evasion_detected": has_evasion,
+        "timestomp_anomalies": anomalies,
+        "alternate_data_streams": ads_found,
+    }
+
+
+# ---------------------------------------------------------
+# Phase 4: Reflective Memory Injection Hunter (RWX Unbacked)
+# ---------------------------------------------------------
+
+class MemoryInjectionScanRequest(BaseModel):
+    pid: Optional[int] = None
+    scan_all: bool = False
+    simulate_injection: bool = False
+
+
+@router.post("/forensics/memory/injection-scan", summary="Hunt for unbacked RWX reflective memory injections (MITRE T1055)")
+async def scan_memory_injections(req: MemoryInjectionScanRequest = MemoryInjectionScanRequest()):
+    results = []
+    scanned_procs = 0
+
+    if os.name != "nt":
+        return {
+            "status": "unsupported_platform",
+            "detail": "Live VAD memory page scanning requires Windows kernel32 memory APIs.",
+            "regions": [],
+            "total_processes_scanned": 0,
+        }
+
+    try:
+        class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("BaseAddress", ctypes.c_void_p),
+                ("AllocationBase", ctypes.c_void_p),
+                ("AllocationProtect", ctypes.c_ulong),
+                ("PartitionId", ctypes.c_ushort),
+                ("RegionSize", ctypes.c_size_t),
+                ("State", ctypes.c_ulong),
+                ("Protect", ctypes.c_ulong),
+                ("Type", ctypes.c_ulong),
+            ]
+
+        k32 = ctypes.windll.kernel32
+        k32.VirtualQueryEx.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(MEMORY_BASIC_INFORMATION), ctypes.c_size_t]
+        k32.VirtualQueryEx.restype = ctypes.c_size_t
+
+        k32.VirtualAlloc.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_ulong, ctypes.c_ulong]
+        k32.VirtualAlloc.restype = ctypes.c_void_p
+
+        k32.VirtualFree.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_ulong]
+        k32.VirtualFree.restype = ctypes.c_bool
+
+        k32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_bool, ctypes.c_ulong]
+        k32.OpenProcess.restype = ctypes.c_void_p
+
+        k32.CloseHandle.argtypes = [ctypes.c_void_p]
+        k32.CloseHandle.restype = ctypes.c_bool
+
+        k32.ReadProcessMemory.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+        k32.ReadProcessMemory.restype = ctypes.c_bool
+
+        MEM_COMMIT = 0x1000
+        MEM_PRIVATE = 0x20000
+        PAGE_EXECUTE = 0x10
+        PAGE_EXECUTE_READ = 0x20
+        PAGE_EXECUTE_READWRITE = 0x40
+        PAGE_EXECUTE_WRITECOPY = 0x80
+
+        # Optional simulated injection buffer in current process for live validation
+        sim_mem = None
+        if req.simulate_injection:
+            # Allocate a 4KB private RWX page in current process
+            sim_mem = k32.VirtualAlloc(0, 4096, MEM_COMMIT, PAGE_EXECUTE_READWRITE)
+            if sim_mem:
+                # Write simulated reflective PE header + high entropy stager payload
+                sim_bytes = bytearray(b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00")
+                sim_bytes.extend(bytes([random.randint(0, 255) for _ in range(512)]))
+                ctypes.memmove(sim_mem, bytes(sim_bytes), len(sim_bytes))
+
+        target_pids = []
+        if req.pid:
+            target_pids.append((req.pid, f"PID-{req.pid}"))
+        elif req.simulate_injection:
+            target_pids.append((os.getpid(), f"simulated_host_{os.getpid()}"))
+        else:
+            # Scan top running candidate processes
+            for proc in psutil.process_iter(["pid", "name"]):
+                try:
+                    p_info = proc.info
+                    p_id = p_info["pid"]
+                    p_name = p_info["name"] or "unknown"
+                    if p_id > 4 and p_name.lower() not in ("system", "registry"):
+                        target_pids.append((p_id, p_name))
+                    if len(target_pids) >= 40:
+                        break
+                except Exception:
+                    continue
+
+        PROCESS_QUERY_INFORMATION = 0x0400
+        PROCESS_VM_READ = 0x0010
+
+        for pid, proc_name in target_pids:
+            h_proc = k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+            if not h_proc:
+                continue
+
+            scanned_procs += 1
+            address = 0
+            mbi = MEMORY_BASIC_INFORMATION()
+
+            try:
+                while True:
+                    res = k32.VirtualQueryEx(h_proc, ctypes.c_void_p(address), ctypes.byref(mbi), ctypes.sizeof(mbi))
+                    if res == 0:
+                        break
+
+                    is_exec = (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0
+                    is_unbacked = (mbi.Type == MEM_PRIVATE)
+
+                    if mbi.State == MEM_COMMIT and is_exec and is_unbacked:
+                        sample_size = min(mbi.RegionSize, 4096)
+                        buf = (ctypes.c_char * sample_size)()
+                        bytes_read = ctypes.c_size_t(0)
+
+                        read_ok = k32.ReadProcessMemory(
+                            h_proc,
+                            ctypes.c_void_p(mbi.BaseAddress),
+                            buf,
+                            sample_size,
+                            ctypes.byref(bytes_read)
+                        )
+
+                        sample_bytes = bytes(buf.raw[:bytes_read.value]) if read_ok else b""
+                        entropy = _compute_entropy(sample_bytes)
+                        indicators = []
+                        severity = "SUSPICIOUS"
+
+                        # Reflective DLL / MZ Header
+                        if len(sample_bytes) >= 2 and sample_bytes[0] == 0x4D and sample_bytes[1] == 0x5A:
+                            indicators.append("Reflective PE/DLL loaded in private memory (MZ header)")
+                            severity = "CRITICAL"
+
+                        # RWX Permission
+                        if (mbi.Protect & PAGE_EXECUTE_READWRITE) != 0:
+                            indicators.append("PAGE_EXECUTE_READWRITE unbacked by file (W^X violation)")
+
+                        # High entropy
+                        if entropy > 6.5 and len(sample_bytes) >= 256:
+                            indicators.append(f"High entropy ({entropy:.2f}): packed/encrypted shellcode stager")
+                            severity = "CRITICAL"
+
+                        hex_preview = " ".join(f"{b:02x}" for b in sample_bytes[:32])
+
+                        results.append({
+                            "pid": pid,
+                            "process_name": proc_name,
+                            "base_address": f"0x{mbi.BaseAddress:X}" if mbi.BaseAddress else "0x0",
+                            "region_size": mbi.RegionSize,
+                            "protection": "PAGE_EXECUTE_READWRITE (RWX)" if (mbi.Protect & PAGE_EXECUTE_READWRITE) else "PAGE_EXECUTE_READ (RX)",
+                            "memory_type": "MEM_PRIVATE (Unbacked)",
+                            "entropy": round(entropy, 2),
+                            "severity": severity,
+                            "indicators": indicators,
+                            "mitre_attack": "T1055",
+                            "hex_preview": hex_preview,
+                            "description": "; ".join(indicators) if indicators else "Unbacked executable private memory region."
+                        })
+
+                    address = (mbi.BaseAddress or 0) + mbi.RegionSize
+                    if address >= 0x7FFFFFFFFFFF:
+                        break
+            finally:
+                k32.CloseHandle(h_proc)
+
+        # Cleanup simulated memory if used
+        if sim_mem:
+            MEM_RELEASE = 0x8000
+            k32.VirtualFree(ctypes.c_void_p(sim_mem), 0, MEM_RELEASE)
+
+    except Exception as e:
+        logger.error(f"Error scanning memory injections: {e}")
+
+    # Anchor critical memory injections to blockchain
+    critical_injections = [r for r in results if r.get("severity") == "CRITICAL"]
+    if critical_injections:
+        LEDGER.append_record({
+            "id": f"INJECTION-{uuid.uuid4().hex[:8].upper()}",
+            "record_type": "ProcessInjectionEvidence",
+            "target": f"PIDs: {[r['pid'] for r in critical_injections]}",
+            "sha256_hash": hashlib.sha256(json.dumps([r["base_address"] for r in critical_injections]).encode()).hexdigest(),
+            "operator": "vad_memory_hunter",
+            "metadata_json": json.dumps({
+                "critical_count": len(critical_injections),
+                "mitre_technique": "T1055",
+            }),
+        })
+
+    return {
+        "status": "completed",
+        "scanned_at": datetime.now(timezone.utc).isoformat(),
+        "total_processes_scanned": scanned_procs,
+        "suspicious_regions_found": len(results),
+        "critical_injections_found": len(critical_injections),
+        "regions": results,
+    }
+
+

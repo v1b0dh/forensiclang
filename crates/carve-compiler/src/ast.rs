@@ -44,6 +44,7 @@ pub struct CarveStatement {
     pub mode: CarveMode,
     pub confidence_threshold: Option<f64>,
     pub export_name: Option<String>,
+    pub scan_threats: bool,
     pub line: usize,
 }
 
