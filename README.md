@@ -1,113 +1,140 @@
-# JOCKY — Forensic Scripting Language Platform
+# CARVE — Carving, Auditing, Recovery, and Verification Engine
 
-A domain-specific language and platform for digital forensics investigations.
-
-## Architecture
+A high-performance domain-specific language (DSL) and forensic platform integrating certified storage sanitization, deep file carving, evidence acquisition, and incident response automation.
 
 ```
-jocky/
-├── compiler/          ← ANTLR4 grammar + Python LLVM IR compiler
-│   ├── Jocky.g4       ← Language grammar
-│   ├── jockc.py       ← Compiler driver (jockc)
-│   ├── ast/           ← AST node definitions + builder
-│   ├── ir/            ← LLVM IR code generator (llvmlite)
-│   └── generated/     ← ANTLR4-generated parser (gitignored)
-├── runtime/           ← C forensic modules (read-only OS APIs)
-│   ├── modules/
-│   │   ├── memory/    ← VirtualQueryEx / /proc/pid/mem
-│   │   ├── disk/      ← VSS snapshot (Windows) / block read (Linux)
-│   │   ├── network/   ← libpcap passive capture
-│   │   └── artifacts/ ← .jkya artifact format
-│   ├── agent/         ← Python WebSocket agent
-│   └── CMakeLists.txt
-├── server/            ← FastAPI management server
-├── dashboard/         ← React + Vite dashboard
-├── stdlib/jocky/      ← Standard forensic library in JOCKY itself
-├── tests/             ← pytest test suite
-└── ci/build.yml       ← GitHub Actions pipeline
+   ██████╗ █████╗ ██████╗ ██╗   ██╗███████╗
+  ██╔════╝██╔══██╗██╔══██╗██║   ██║██╔════╝
+  ██║     ███████║██████╔╝██║   ██║█████╗  
+  ██║     ██╔══██║██╔══██╗╚██╗ ██╔╝██╔══╝  
+  ╚██████╗██║  ██║██║  ██║ ╚████╔╝ ███████╗
+   ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝
+  Carving, Auditing, Recovery, and Verification Engine
 ```
+
+---
+
+## Architecture Overview
+
+```
+carve/
+├── crates/
+│   ├── carve-compiler/    ← Native Rust AST parser (Pest grammar) & CLI (carvec)
+│   └── carve-runtime/     ← Systems engine: DoD/NIST sanitization, cluster slack scrub,
+│                            magic byte carving & validation, MFT parser, Win32 I/O
+├── compiler/              ← ANTLR4 grammar + Python LLVM IR compiler
+│   ├── carvec.py          ← Primary compiler driver (emits LLVM IR & native binaries)
+│   ├── Jocky.g4           ← ANTLR4 language grammar
+│   ├── ast/               ← AST node definitions & typed parse tree builder
+│   └── ir/                ← Multi-target LLVM IR code generator (llvmlite)
+├── runtime/               ← C forensic modules (read-only OS telemetry & live capture)
+│   ├── modules/           ← Memory, raw disk, pcap network, and artifact serializers
+│   └── agent/             ← Authenticated TLS agent (Fernet encryption + cert pinning)
+├── server/                ← FastAPI management server (WebSocket dispatch & DB storage)
+├── dashboard/             ← React + Vite forensic analyst dashboard
+├── stdlib/carve/          ← Standard forensic & sanitization playbooks (.crv)
+├── tests/                 ← Comprehensive pytest and cargo test suites
+└── ci/build.yml           ← Multi-platform CI pipeline
+```
+
+---
+
+## Core Capabilities
+
+1. **Certified Storage Sanitization**
+   - **NIST SP 800-88 Rev. 1** (*Clear* / *Purge*) & **DoD 5220.22-M** (3-pass overwrite).
+   - **Hardware Safety Interlock**: Automatically identifies OS boot volumes (`\\.\C:`, `PhysicalDrive0`) and refuses destruction without explicit administrative bypass.
+   - **Residual Data Scrubbing**: Overwrites `$MFT` record names/metadata and zeroes unallocated cluster slack space.
+   - **Cryptographic Destruction Certificates**: Generates SHA-256 / HMAC-signed verification records.
+
+2. **Advanced Forensic File Carving**
+   - **Multi-Format Extraction**: Carves PDF, PNG, JPEG, SQLite, ZIP, Office (DOCX/XLSX), PCAP, and PE binaries.
+   - **Structure Validation**: Validates database headers, page integrity, deflate blocks, and PNG chunk CRC32 checksums.
+   - **Confidence Scoring & Sector Mapping**: Live visual density heatmaps isolate corrupted fragments from intact files.
+
+3. **Domain-Specific Language (CARVE DSL)**
+   - Declarative, human-readable forensic playbooks (`.crv` files).
+   - Compiles down to native machine code via LLVM IR.
+
+---
 
 ## Quick Start
 
-### 1. Install dependencies
-```bash
-pip install antlr4-tools antlr4-python3-runtime llvmlite fastapi uvicorn sqlalchemy websockets cryptography
-npm install         # in dashboard/
+### 1. Compile & Inspect a Playbook
+
+#### Using Native Rust Compiler (`carvec`):
+```powershell
+# Syntax validation only:
+cargo run -p carve-compiler -- stdlib/carve/sanitization_and_recovery.crv --check
+
+# Dump full Abstract Syntax Tree as JSON:
+cargo run -p carve-compiler -- stdlib/carve/sanitization_and_recovery.crv --ast
 ```
 
-### 2. Generate the parser
-```bash
-cd compiler
-antlr4 -Dlanguage=Python3 -visitor -o generated/ Jocky.g4
+#### Using Python / LLVM Compiler (`carvec.py`):
+```powershell
+# Generate optimized LLVM IR:
+python compiler/carvec.py stdlib/carve/sanitization_and_recovery.crv --ir-only
 ```
 
-### 3. Build the C runtime
-```bash
-cd runtime
-cmake -B build -G Ninja
-cmake --build build
-```
+---
 
-### 4. Compile a JOCKY script
-```bash
-python compiler/jockc.py script.jky output_binary
-```
-
-### 5. Start the management server
-```bash
+### 2. Start the Management Server
+```powershell
 uvicorn server.main:app --reload --port 8000
 ```
+- API & WebSocket Server: `http://127.0.0.1:8000`
+- Interactive API Docs: `http://127.0.0.1:8000/docs`
 
-### 6. Start the dashboard
-```bash
+---
+
+### 3. Launch the Analyst Dashboard
+```powershell
 cd dashboard
 npm run dev
 ```
+- Web UI: `http://127.0.0.1:5173/`
 
-## Example JOCKY Script
-```jocky
-// Detect persistence mechanism on a host
+---
 
-scan processes
-  filter by parent_pid == 1
+## Example CARVE Script (`.crv`)
 
-collect memory from pid 4512
-  filter by region [heap]
-  export to artifact "suspicious_heap"
+```carve
+// Certified Drive Sanitization & Verification Playbook
 
-timeline host "DEMO-HOST"
-  from "2026-09-20" to "2026-09-25"
-  include [registry, eventlog, prefetch, shellbags]
-  output report "persistence_analysis.html"
+function certified_drive_wipe(drive_path, audit_log, cert_file) {
+  erase drive drive_path
+    method nist_800_88_clear
+    passes 1
+    clean_metadata true
+    clean_slack true
+    audit audit_log
+    certificate cert_file
+}
 
-correlate "suspicious_heap" with "known_malware.ioc"
-  flag anomalies
+function verify_zero_residual_carve(drive_path, artifact_out) {
+  carve disk from drive drive_path
+    types [all]
+    mode deep
+    confidence_threshold 0.50
+    export to artifact artifact_out
+}
 
-report "persistence_analysis" as "final_report"
-  format html
+function full_media_disposal_cycle(drive_path) {
+  certified_drive_wipe(drive_path, "disposal_audit.json", "destruction_cert.pdf")
+  verify_zero_residual_carve(drive_path, "post_wipe_evidence")
+  report "disposal_audit" as "compliance_report.html" format html
+}
 ```
 
-## Design Principles
-- **Read-only**: Every runtime function uses read-only OS APIs (no write to foreign process memory)
-- **Passive capture**: Network module is non-promiscuous by default
-- **Encrypted transport**: Agent-server communication uses Fernet + TLS with cert pinning
-- **Cross-platform**: Same JOCKY script compiles for Windows and Linux
+---
 
-## Language Reference
+## Testing
 
-| Statement | Description |
-|-----------|-------------|
-| `collect memory from pid N` | Dump process memory regions |
-| `collect disk from host H` | VSS snapshot + MFT read |
-| `collect registry from host H` | Registry hive read |
-| `scan processes` | Enumerate running processes |
-| `scan network interfaces` | Passive NIC scan |
-| `timeline host H from T1 to T2` | Build event timeline |
-| `correlate ARTIFACT with IOC_FILE` | Match against IOC list |
-| `report ARTIFACT as FILE format html\|json\|csv` | Generate report |
-| `analyze ARTIFACT using PLUGIN` | Run analysis plugin (YARA/etc) |
-
-## Running Tests
-```bash
+```powershell
+# Run all Python compiler & server tests:
 python -m pytest tests/ -v
+
+# Run all Rust compiler & runtime tests:
+cargo test --workspace
 ```

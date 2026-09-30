@@ -1,9 +1,9 @@
-//! JOCKY Compiler Driver — `jockc`
+//! CARVE Compiler Driver — `carvec`
 //!
 //! Usage:
-//!   jockc <source.jky>               Parse and dump AST as JSON
-//!   jockc <source.jky> --ast         Parse and dump AST as JSON
-//!   jockc <source.jky> --check       Parse-only (syntax check)
+//!   carvec <source.crv>               Parse and dump AST as JSON
+//!   carvec <source.crv> --ast         Parse and dump AST as JSON
+//!   carvec <source.crv> --check       Parse-only (syntax check)
 
 mod ast;
 mod parser;
@@ -14,12 +14,12 @@ use std::process;
 
 #[derive(ClapParser, Debug)]
 #[command(
-    name = "jockc",
-    about = "JOCKY forensic scripting language compiler",
+    name = "carvec",
+    about = "CARVE forensic scripting language compiler",
     version
 )]
 struct Cli {
-    /// Path to .jky source file
+    /// Path to .crv or .jky source file
     source: String,
 
     /// Dump the AST as JSON
@@ -38,7 +38,7 @@ fn main() {
     let source = match fs::read_to_string(&cli.source) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[jockc] ERROR: Cannot read '{}': {}", cli.source, e);
+            eprintln!("[carvec] ERROR: Cannot read '{}': {}", cli.source, e);
             process::exit(1);
         }
     };
@@ -47,14 +47,14 @@ fn main() {
     let program = match parser::parse(&source) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("[jockc] {}", e);
+            eprintln!("[carvec] {}", e);
             process::exit(1);
         }
     };
 
     if cli.check {
         println!(
-            "[jockc] OK: {} statement(s) parsed from '{}'",
+            "[carvec] OK: {} statement(s) parsed from '{}'",
             program.statements.len(),
             cli.source
         );
@@ -65,7 +65,7 @@ fn main() {
         match serde_json::to_string_pretty(&program) {
             Ok(json) => println!("{json}"),
             Err(e) => {
-                eprintln!("[jockc] JSON serialization error: {e}");
+                eprintln!("[carvec] JSON serialization error: {e}");
                 process::exit(1);
             }
         }
@@ -73,7 +73,7 @@ fn main() {
     }
 
     // Default: parse + summary
-    println!("[jockc] Parsed '{}' → {} statement(s)", cli.source, program.statements.len());
+    println!("[carvec] Parsed '{}' → {} statement(s)", cli.source, program.statements.len());
     for (i, stmt) in program.statements.iter().enumerate() {
         let kind = match stmt {
             ast::Statement::Collect(c) => format!("collect {:?}", c.target),
@@ -94,6 +94,6 @@ fn main() {
     }
 
     // TODO: Phase 2.5+ — LLVM IR codegen via inkwell
-    println!("\n[jockc] Note: LLVM IR codegen not yet implemented in Rust compiler.");
-    println!("[jockc] Use the Python compiler (compiler/jockc.py) for full compilation.");
+    println!("\n[carvec] Note: LLVM IR codegen not yet implemented in Rust compiler.");
+    println!("[carvec] Use the Python compiler (compiler/carvec.py) for full compilation.");
 }

@@ -1,11 +1,11 @@
 """
-JOCKY Management Server
+CARVE Management Server
 server/main.py
 
 FastAPI application that:
   - Accepts agent WebSocket connections
   - Accepts authenticated REST API requests from the dashboard
-  - Dispatches JOCKY scripts to agents
+  - Dispatches CARVE scripts to agents
   - Stores results and artifacts in SQLite (dev) / PostgreSQL (prod)
 
 Run:
@@ -31,19 +31,19 @@ from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
 # ── Database setup ────────────────────────────────────────────────
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./jocky.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./carve.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 # ── Logging ──────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-log = logging.getLogger("jocky.server")
+log = logging.getLogger("carve.server")
 
 # ── FastAPI app ───────────────────────────────────────────────────
 app = FastAPI(
-    title="JOCKY Management Server",
+    title="CARVE Management Server",
     version="1.0.0",
-    description="Forensic script deployment and artifact management API",
+    description="CARVE Forensic Script Deployment & Artifact Management API",
 )
 
 app.add_middleware(
@@ -114,7 +114,7 @@ def init_db():
 @app.on_event("startup")
 async def startup():
     init_db()
-    log.info("JOCKY Management Server started — DB initialised")
+    log.info("CARVE Management Server started — DB initialised")
 
 
 def save_job(job_id: str, script: str, targets: list[str]):

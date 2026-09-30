@@ -9,6 +9,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
+name = "carve-compiler"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "pest",
+ "pest_derive",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "carve-runtime"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "clap"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -63,31 +88,6 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
-
-[[package]]
-name = "jocky-compiler"
-version = "0.1.0"
-dependencies = [
- "clap",
- "pest",
- "pest_derive",
- "pretty_assertions",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "jocky-runtime"
-version = "0.1.0"
-dependencies = [
- "libc",
- "log",
- "pretty_assertions",
- "serde",
- "serde_json",
- "thiserror",
-]
 
 [[package]]
 name = "libc"

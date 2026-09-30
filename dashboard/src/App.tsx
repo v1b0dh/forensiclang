@@ -33,8 +33,11 @@ export function App() {
       {/* ── Sidebar ─────────────────────────────────────────── */}
       <nav className="sidebar">
         <div className="sidebar-logo">
-          <div className="logo-icon">🔬</div>
-          <span className="logo-text">JOCKY</span>
+          <div className="logo-icon">⚡</div>
+          <div>
+            <span className="logo-text">CARVE</span>
+            <div style={{ fontSize: '9px', color: 'var(--text-muted)', letterSpacing: '0.08em', marginTop: '-2px', fontWeight: 600 }}>DFIR ENGINE</div>
+          </div>
         </div>
 
         {NAV_ITEMS.map(({ id, label, icon: Icon }) => (

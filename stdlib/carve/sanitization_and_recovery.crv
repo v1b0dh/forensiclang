@@ -1,0 +1,25 @@
+// JOCKY Forensic Script: Certified Drive Sanitization & Carving Audit Playbook
+
+function certified_drive_wipe(drive_path, audit_log, cert_file) {
+  erase drive drive_path
+    method nist_800_88_clear
+    passes 1
+    clean_metadata true
+    clean_slack true
+    audit audit_log
+    certificate cert_file
+}
+
+function verify_zero_residual_carve(drive_path, artifact_out) {
+  carve disk from drive drive_path
+    types [all]
+    mode deep
+    confidence_threshold 0.50
+    export to artifact artifact_out
+}
+
+function full_media_disposal_cycle(drive_path) {
+  certified_drive_wipe(drive_path, "disposal_audit.json", "destruction_cert.pdf")
+  verify_zero_residual_carve(drive_path, "post_wipe_evidence")
+  report "disposal_audit" as "compliance_report.html" format html
+}

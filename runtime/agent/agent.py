@@ -1,5 +1,5 @@
 """
-JOCKY Agent — runs on target machine, receives and executes JOCKY scripts.
+CARVE Agent — runs on target machine, receives and executes CARVE scripts.
 runtime/agent/agent.py
 
 Security model:
@@ -34,11 +34,14 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
-log = logging.getLogger("jocky.agent")
+log = logging.getLogger("carve.agent")
 
 
-class JockyAgent:
-    """WebSocket-connected agent that executes JOCKY scripts on demand."""
+class CarveAgent:
+    """WebSocket-connected agent that executes CARVE scripts on demand."""
+
+# Backwards compatibility alias
+JockyAgent = CarveAgent
 
     RECONNECT_DELAY = 5   # seconds between reconnect attempts
     SCRIPT_TIMEOUT  = 300  # max seconds a script may run

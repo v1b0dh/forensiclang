@@ -1,0 +1,30 @@
+// JOCKY Forensic Script: Certified Storage Sanitization Routine
+// Implements NIST SP 800-88 & DoD 5220.22-M media destruction standard
+
+function sanitize_physical_volume(target_device, audit_out, cert_out) {
+  erase drive target_device
+    method dod_5220_22_m
+    passes 3
+    clean_metadata true
+    clean_slack true
+    audit audit_out
+    certificate cert_out
+}
+
+function shred_sensitive_folder(folder_path, audit_out) {
+  erase folder folder_path
+    method nist_800_88_clear
+    passes 1
+    clean_metadata true
+    clean_slack true
+    audit audit_out
+}
+
+function sanitize_evidence_file(file_path, cert_out) {
+  erase file file_path
+    method nist_800_88_purge
+    passes 3
+    clean_metadata true
+    clean_slack true
+    certificate cert_out
+}

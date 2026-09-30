@@ -1,8 +1,8 @@
 [package]
-name = "jocky-runtime"
+name = "carve-runtime"
 version.workspace = true
 edition.workspace = true
-description = "JOCKY forensic runtime — memory, disk, network, and process collection modules"
+description = "CARVE forensic runtime — sanitization, carving, memory, disk, network, and timeline modules"
 
 [dependencies]
 thiserror = "2"

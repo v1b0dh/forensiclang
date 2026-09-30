@@ -1,9 +1,9 @@
 {
-  "name": "jocky-dashboard",
+  "name": "carve-dashboard",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "JOCKY Forensic Platform — Management Dashboard",
+  "description": "CARVE Forensic Platform — Management Dashboard",
   "scripts": {
     "dev":     "vite",
     "build":   "tsc -b && vite build",

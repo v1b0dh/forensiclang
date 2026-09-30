@@ -95,7 +95,7 @@ export function ScriptEditor() {
     <div className="editor-panel">
       {/* Toolbar */}
       <div className="editor-toolbar">
-        <h2 style={{ fontWeight: 700, fontSize: 15, flexShrink: 0 }}>JOCKY Script Editor</h2>
+        <h2 style={{ fontWeight: 700, fontSize: 15, flexShrink: 0 }}>CARVE Script Editor</h2>
 
         <div style={{ display:'flex', alignItems:'center', gap:8, marginLeft:'auto' }}>
           <span style={{ color:'var(--text-secondary)', fontSize:12 }}>

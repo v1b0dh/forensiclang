@@ -1,12 +1,13 @@
 [package]
-name = "jocky-compiler"
+name = "carve-compiler"
 version.workspace = true
 edition.workspace = true
-description = "JOCKY forensic scripting language compiler (jockc)"
+description = "CARVE forensic scripting language compiler (carvec)"
 
 [[bin]]
-name = "jockc"
+name = "carvec"
 path = "src/main.rs"
+
 
 [dependencies]
 pest = "2"

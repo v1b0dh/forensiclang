@@ -1,0 +1,102 @@
+// JOCKY Standard Library
+// stdlib/jocky/forensics.jky
+//
+// A collection of reusable JOCKY scripts for common forensic scenarios.
+// Import pattern (future): import "stdlib/jocky/forensics.jky"
+
+// ─────────────────────────────────────────────────────────────────
+// FUNCTION: quick_memory_scan
+// Collect memory from a suspicious process and correlate with IOCs
+// ─────────────────────────────────────────────────────────────────
+function quick_memory_scan(pid) {
+  collect memory from pid pid
+    filter by region [heap, stack]
+    export to artifact "mem_scan_output"
+
+  correlate "mem_scan_output" with "stdlib/ioc/common.ioc"
+    flag anomalies
+
+  report "mem_scan_output" as "mem_scan_report.html"
+    format html
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FUNCTION: persistence_check
+// Check common Windows persistence locations
+// ─────────────────────────────────────────────────────────────────
+function persistence_check(hostname) {
+  collect disk
+    from host hostname
+    filter by path contains "AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+    export to artifact "startup_items"
+
+  collect registry
+    from host hostname
+    export to artifact "run_keys"
+
+  timeline host hostname
+    from "2026-01-01" to "2026-12-31"
+    include [registry, eventlog, prefetch, shellbags]
+    output report "persistence_timeline.html"
+
+  correlate "startup_items" with "stdlib/ioc/persistence.ioc"
+    flag anomalies
+
+  correlate "run_keys" with "stdlib/ioc/persistence.ioc"
+    flag anomalies
+
+  report "startup_items" as "persistence_report.html"
+    format html
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FUNCTION: network_sweep
+// Passive network scan — capture and correlate flows
+// ─────────────────────────────────────────────────────────────────
+function network_sweep(interface_name) {
+  scan network interfaces on interface_name
+    filter by protocol contains "tcp"
+
+  correlate "network_capture" with "stdlib/ioc/c2_ips.ioc"
+    flag anomalies
+
+  report "network_capture" as "network_report.html"
+    format html
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FUNCTION: full_forensic_triage
+// Complete first-response triage on a host
+// ─────────────────────────────────────────────────────────────────
+function full_forensic_triage(hostname, analyst_pid) {
+  // Step 1: Process tree
+  scan processes
+    filter by parent_pid == 1
+
+  // Step 2: Memory of analyst-flagged process
+  collect memory from pid analyst_pid
+    filter by region [heap]
+    export to artifact "triage_memory"
+
+  // Step 3: Disk snapshot
+  collect disk
+    from host hostname
+    export to artifact "triage_disk"
+
+  // Step 4: Network state
+  scan network interfaces
+
+  // Step 5: Build full timeline
+  timeline host hostname
+    from "2026-09-01" to "2026-09-30"
+    include [registry, eventlog, prefetch, shellbags, mft, browser]
+    output report "triage_timeline.html"
+
+  // Step 6: Correlate all artifacts
+  correlate "triage_memory" with "stdlib/ioc/apt29.ioc"   flag anomalies
+  correlate "triage_disk"   with "stdlib/ioc/common.ioc"  flag anomalies
+
+  // Step 7: Final report
+  report "triage_timeline" as "full_triage_report.html"
+    format html
+}
